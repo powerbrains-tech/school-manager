@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../"; /* 👈 บรรทัดนี้สำคัญมาก! บังคับให้ Vercel สแกนหาคลาสในโฟลเดอร์ src ทั้งหมด */
 
 :root {
   --background: #ffffff;
@@ -12,10 +13,11 @@
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
+/* 👈 ป้องกันมือถือเปิด Dark Mode แล้วหน้าจอเละ กลายเป็นสีดำ */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #ffffff; 
+    --foreground: #171717;
   }
 }
 
