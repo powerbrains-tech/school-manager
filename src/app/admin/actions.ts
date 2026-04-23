@@ -1,16 +1,18 @@
-// src/app/admin/actions.ts
 'use server'
 
-import { supabase } from '../lib/supabase'
 import { revalidatePath } from 'next/cache'
+import { requirePermission } from '../lib/auth'
+import { supabase } from '../lib/supabase'
 
 export async function addHours(formData: FormData) {
+  const access = await requirePermission('edit')
+  if (!access.ok) return
+
   const enrollmentId = formData.get('enrollmentId') as string
-  const hoursToAdd = parseInt(formData.get('hours') as string)
+  const hoursToAdd = Number.parseFloat((formData.get('hours') as string) || '0')
 
-  if (!enrollmentId || !hoursToAdd) return
+  if (!enrollmentId || !Number.isFinite(hoursToAdd) || hoursToAdd <= 0) return
 
-  // 1. ดึงชั่วโมงปัจจุบันก่อน
   const { data: current } = await supabase
     .from('enrollments')
     .select('remaining_hours')
@@ -19,7 +21,6 @@ export async function addHours(formData: FormData) {
 
   if (!current) return
 
-  // 2. บวกชั่วโมงเพิ่มเข้าไป
   const newHours = (current.remaining_hours || 0) + hoursToAdd
 
   await supabase
@@ -27,6 +28,6 @@ export async function addHours(formData: FormData) {
     .update({ remaining_hours: newHours })
     .eq('id', enrollmentId)
 
-  // 3. สั่งให้หน้าจอรีเฟรชข้อมูลใหม่ทันที
   revalidatePath('/admin')
+  revalidatePath('/dashboard')
 }
