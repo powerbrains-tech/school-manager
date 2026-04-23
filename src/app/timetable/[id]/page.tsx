@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import { processCheckIn } from './actions'
@@ -36,10 +36,18 @@ export default function ClassManagementPage() {
   const [selectedResolutions, setSelectedResolutions] = useState<Record<string, string>>({}) 
   const [isProcessingCheckIn, setIsProcessingCheckIn] = useState(false)
 
+  // ✅ ระบบ Toast Notification 
+  const [toast, setToast] = useState<{msg: string, type: 'success' | 'error' | 'warning'} | null>(null)
+  const toastTimeout = useRef<any>(null)
+
+  const showToast = (msg: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    setToast({ msg, type })
+    if (toastTimeout.current) clearTimeout(toastTimeout.current)
+    toastTimeout.current = setTimeout(() => setToast(null), 3500)
+  }
+
   useEffect(() => {
-    if (params.id) {
-      fetchClassData(params.id)
-    }
+    if (params.id) fetchClassData(params.id)
     fetchEditOptions()
   }, [params.id])
 
@@ -104,7 +112,7 @@ export default function ClassManagementPage() {
 
   const handleSaveClassInfo = async () => {
     if (!editForm.subject_id || !editForm.teacher_id || !editForm.room_id || !editForm.start_time || !editForm.end_time) {
-      return alert('กรุณากรอกข้อมูลให้ครบถ้วน')
+      return showToast('กรุณากรอกข้อมูลให้ครบถ้วน', 'warning')
     }
     
     setSavingClass(true)
@@ -125,8 +133,9 @@ export default function ClassManagementPage() {
       setIsEditingClass(false)
       fetchClassData(schedule.id) 
       router.refresh() 
+      showToast('อัปเดตข้อมูลห้องเรียนสำเร็จ!', 'success')
     } catch (error: any) {
-      alert(`แก้ไขข้อมูลไม่สำเร็จ: ${error.message}`)
+      showToast(`แก้ไขข้อมูลไม่สำเร็จ: ${error.message}`, 'error')
     } finally {
       setSavingClass(false)
     }
@@ -148,26 +157,28 @@ export default function ClassManagementPage() {
           attendance_status: 'pending' 
       })
       if (error) {
-        if (error.code === '23505') alert('นักเรียนคนนี้อยู่ในคลาสนี้แล้ว!')
+        if (error.code === '23505') showToast('นักเรียนคนนี้อยู่ในคลาสนี้แล้ว!', 'warning')
         else throw error
       } else {
         fetchClassData(schedule.id) 
+        showToast('เพิ่มนักเรียนเข้าห้องสำเร็จ', 'success')
       }
     } catch (error: any) {
-      alert(`เกิดข้อผิดพลาด: ${error.message}`)
+      showToast(`เกิดข้อผิดพลาด: ${error.message}`, 'error')
     } finally {
       setProcessingId(null)
     }
   }
 
   const handleRemoveStudent = async (classStudentId: string) => {
-    if (!confirm('ยืนยันการนำนักเรียนออกจากคลาสนี้?')) return
+    if (!window.confirm('ยืนยันการนำนักเรียนออกจากคลาสนี้?')) return
     try {
       const { error } = await supabase.from('class_students').delete().eq('id', classStudentId)
       if (error) throw error
       fetchClassData(schedule.id)
+      showToast('นำนักเรียนออกจากห้องแล้ว', 'success')
     } catch (error: any) {
-      alert(`ลบไม่สำเร็จ: ${error.message}`)
+      showToast(`ลบไม่สำเร็จ: ${error.message}`, 'error')
     }
   }
 
@@ -185,18 +196,19 @@ export default function ClassManagementPage() {
     const activeEnrollments = item.students?.enrollments?.filter((e: any) => e.remaining_hours >= classHours) || []
 
     if (activeEnrollments.length === 0) {
-      alert(`❌ ${item.students.name} ไม่มีคอร์สเรียน หรือชั่วโมงไม่พอ (ต้องการ ${classHours} ชม.)`)
+      showToast(`${item.students.name} ไม่มีคอร์ส หรือชั่วโมงไม่พอ (${classHours} ชม.)`, 'error')
       return
     }
 
     if (activeEnrollments.length === 1) {
-      if (!confirm(`ยืนยันเช็คชื่อและตัด ${classHours} ชม. จากวิชา "${activeEnrollments[0].courses?.title}"?`)) return
+      if (!window.confirm(`ยืนยันเช็คชื่อและตัด ${classHours} ชม. จากวิชา "${activeEnrollments[0].courses?.title}"?`)) return
       setProcessingId(item.id)
       const res = await processCheckIn(item.id, activeEnrollments[0].id, classHours, schedule.id, schedule.subject_id)
       if (res.success) {
         fetchClassData(schedule.id)
+        showToast(`เช็คชื่อ ${item.students.nickname || item.students.name} สำเร็จ!`, 'success')
       } else {
-        alert(`❌ ตัดชั่วโมงไม่สำเร็จ: ${res.error}`)
+        showToast(`ตัดชั่วโมงไม่สำเร็จ: ${res.error}`, 'error')
       }
       setProcessingId(null)
     } else {
@@ -207,8 +219,8 @@ export default function ClassManagementPage() {
 
   const handleCheckAll = async () => {
     const pendingStudents = enrolledStudents.filter(s => s.attendance_status === 'pending')
-    if (pendingStudents.length === 0) return alert('นักเรียนทุกคนถูกเช็คชื่อเรียบร้อยแล้ว')
-    if (!confirm('ยืนยันการเช็คชื่อนักเรียนที่เหลือ "ทุกคน"? (ระบบจะตัดชั่วโมงเรียนอัตโนมัติ)')) return
+    if (pendingStudents.length === 0) return showToast('นักเรียนทุกคนถูกเช็คชื่อเรียบร้อยแล้ว', 'warning')
+    if (!window.confirm('ยืนยันการเช็คชื่อนักเรียนที่เหลือ "ทุกคน"? (ระบบจะตัดชั่วโมงเรียนอัตโนมัติ)')) return
 
     const classHours = calculateClassHours()
     const multiCourseStudents: any[] = []
@@ -233,16 +245,18 @@ export default function ClassManagementPage() {
     if (multiCourseStudents.length > 0) {
       setResolutionQueue(multiCourseStudents)
       setSelectedResolutions({})
-      if (successCount > 0) alert(`✅ เช็คชื่อผ่านอัตโนมัติ ${successCount} คน\n\n⚠️ มีนักเรียน ${multiCourseStudents.length} คนที่มีหลายคอร์ส กรุณาเลือกคอร์สที่จะตัดชั่วโมงครับ`)
+      if (successCount > 0) {
+        showToast(`เช็คชื่ออัตโนมัติ ${successCount} คน เหลือผู้ที่ต้องเลือกคอร์ส`, 'warning')
+      }
     } else {
-      alert('✅ เช็คชื่อทุกคนเสร็จสมบูรณ์!')
+      showToast('เช็คชื่อทุกคนเสร็จสมบูรณ์!', 'success')
     }
   }
 
   const submitResolutions = async () => {
     for (const q of resolutionQueue) {
       if (!selectedResolutions[q.item.id]) {
-        return alert(`กรุณาเลือกคอร์สให้ "${q.item.students.name}" ให้ครบทุกคนครับ`)
+        return showToast(`กรุณาเลือกคอร์สให้ "${q.item.students.name}" ให้ครบทุกคนครับ`, 'warning')
       }
     }
 
@@ -255,7 +269,7 @@ export default function ClassManagementPage() {
       const res = await processCheckIn(q.item.id, enrollId, classHours, schedule.id, schedule.subject_id)
       
       if (!res.success) {
-          alert(`❌ ตัดชั่วโมงของ "${q.item.students.name}" ไม่สำเร็จ: ${res.error}`)
+          showToast(`ตัดชั่วโมงของ "${q.item.students.name}" ไม่สำเร็จ: ${res.error}`, 'error')
           hasError = true
           break
       }
@@ -266,7 +280,7 @@ export default function ClassManagementPage() {
     if (!hasError) {
         setResolutionQueue([]) 
         fetchClassData(schedule.id)
-        alert('✅ ตัดชั่วโมงและเช็คชื่อเสร็จสมบูรณ์!')
+        showToast('ตัดชั่วโมงและเช็คชื่อเสร็จสมบูรณ์!', 'success')
     }
   }
 
@@ -290,18 +304,31 @@ export default function ClassManagementPage() {
   const classHours = calculateClassHours()
 
   return (
-    <div className="min-h-screen bg-gray-50 p-3 md:p-8 pb-24 font-sans relative">
+    <div className="min-h-screen bg-gray-50 p-3 md:p-8 pb-24 font-sans relative overflow-x-hidden">
+      
+      {/* 🚀 TOAST NOTIFICATION UI */}
+      {toast && (
+        <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-[100] px-6 py-3 rounded-full shadow-2xl backdrop-blur-md border animate-fade-in-up flex items-center gap-3 w-[90%] max-w-sm
+          ${toast.type === 'success' ? 'bg-green-500/90 border-green-400 text-white' : 
+            toast.type === 'error' ? 'bg-red-500/90 border-red-400 text-white' : 
+            'bg-orange-500/90 border-orange-400 text-white'}
+        `}>
+          <span className="text-lg">
+            {toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : '⚠️'}
+          </span>
+          <p className="font-bold text-sm tracking-wide">{toast.msg}</p>
+        </div>
+      )}
+
       <div className="max-w-4xl mx-auto">
-        
         <button onClick={() => router.back()} className="inline-flex items-center gap-2 text-gray-500 hover:text-indigo-600 transition font-bold text-sm mb-4 md:mb-6 bg-white px-4 py-2 rounded-full shadow-sm border border-gray-100">
           <span>🔙</span> <span className="hidden sm:inline">กลับหน้าตารางสอน</span><span className="sm:hidden">กลับ</span>
         </button>
 
-        {/* 1. Header สรุปคลาส (Mobile Optimized) */}
+        {/* 1. Header สรุปคลาส */}
         <div className="bg-white rounded-[2rem] p-5 md:p-8 shadow-sm border border-gray-100 mb-6 md:mb-8 relative overflow-hidden group">
             <div className="absolute -right-10 -top-10 text-8xl md:text-9xl opacity-5 pointer-events-none">📚</div>
             
-            {/* ปุ่มแก้ไข โผล่ตลอดในมือถือ */}
             {!isEditingClass && (
               <button 
                 onClick={openEditMode}
@@ -313,10 +340,8 @@ export default function ClassManagementPage() {
 
             <div className="relative z-10">
               {isEditingClass ? (
-                  // โหมดแก้ไข
                   <div className="bg-gray-50/80 p-4 md:p-5 rounded-2xl border border-gray-200 w-full animate-fade-in mt-8 md:mt-0">
                       <h3 className="text-sm font-black text-indigo-800 mb-4 flex items-center gap-2">✏️ แก้ไขข้อมูลตารางสอน</h3>
-                      
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 mb-4">
                           <div>
                               <label className="text-[10px] font-bold text-gray-500 uppercase ml-1 mb-1 block">วิชาที่สอน</label>
@@ -372,7 +397,6 @@ export default function ClassManagementPage() {
                                 className="w-full border-2 border-white focus:border-indigo-300 rounded-xl px-2 py-2 text-sm font-bold text-gray-800 outline-none shadow-sm text-center" 
                               />
                           </div>
-                          
                           <div className="col-span-2 flex flex-col sm:flex-row items-end gap-2 mt-2 sm:mt-0">
                               <button onClick={() => setIsEditingClass(false)} disabled={savingClass} className="w-full sm:flex-1 bg-white border border-gray-200 text-gray-600 px-4 py-2.5 rounded-xl font-bold hover:bg-gray-50 transition active:scale-95 disabled:opacity-50 text-sm shadow-sm">
                                   ยกเลิก
@@ -384,7 +408,6 @@ export default function ClassManagementPage() {
                       </div>
                   </div>
               ) : (
-                  // โหมดแสดงผลปกติ
                   <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                       <div>
                           <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-2 md:mb-3 mt-6 md:mt-0">
@@ -392,14 +415,12 @@ export default function ClassManagementPage() {
                                   {schedule.rooms?.name}
                               </span>
                               <span className="text-xs md:text-sm font-bold text-gray-500 flex items-center gap-1">
-                                  📅 {new Date(schedule.schedule_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  📅 {new Date(schedule.schedule_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
                               </span>
                           </div>
-                          
                           <h1 className="text-2xl md:text-4xl font-black text-gray-900 tracking-tight mb-2 md:mb-3 leading-tight">
                               {schedule.subjects?.name || 'ไม่ได้ระบุวิชา'}
                           </h1>
-
                           <p className="text-sm md:text-lg font-bold text-gray-600 flex items-center gap-2">
                               👨‍🏫 ครูผู้สอน: <span className="text-indigo-600">{schedule.teachers?.name} {schedule.teachers?.nickname ? `(${schedule.teachers?.nickname})` : ''}</span>
                           </p>
@@ -415,7 +436,7 @@ export default function ClassManagementPage() {
             </div>
         </div>
 
-        {/* 2. แถบเครื่องมือจัดการนักเรียน (Mobile Stack) */}
+        {/* 2. แถบเครื่องมือจัดการนักเรียน */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 md:mb-6 gap-3 md:gap-4">
             <h2 className="text-lg md:text-xl font-black text-gray-800 flex items-center gap-2">
                 👥 รายชื่อนักเรียน 
@@ -437,7 +458,7 @@ export default function ClassManagementPage() {
             </div>
         </div>
 
-        {/* 3. ตารางรายชื่อนักเรียนในห้อง (ป้องกัน Truncate) */}
+        {/* 3. ตารางรายชื่อนักเรียนในห้อง */}
         <div className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm">
             {enrolledStudents.length === 0 ? (
                 <div className="py-12 md:py-16 flex flex-col items-center justify-center text-center bg-gray-50/50 px-4">
@@ -454,7 +475,6 @@ export default function ClassManagementPage() {
 
                         return (
                             <div key={item.id} className="p-3 md:p-5 flex items-center justify-between hover:bg-gray-50 transition group">
-                                {/* ใช้ min-w-0 เพื่อให้ text-truncate ทำงานได้ใน flexbox */}
                                 <div className="flex items-center gap-3 md:gap-4 flex-1 min-w-0">
                                     <div className="w-5 md:w-8 text-center text-gray-400 font-bold text-xs md:text-base hidden sm:block">{index + 1}</div>
                                     <div className="relative flex-shrink-0">
@@ -468,7 +488,6 @@ export default function ClassManagementPage() {
                                         {isPresent && <span className="absolute -bottom-1 -right-1 w-3 h-3 md:w-4 md:h-4 bg-green-500 border-2 border-white rounded-full"></span>}
                                     </div>
                                     
-                                    {/* กล่องเก็บชื่อที่ตัดคำยาวๆ ออกได้ */}
                                     <div className="min-w-0 flex-1">
                                         <p className="font-bold text-gray-800 flex items-center gap-2 flex-wrap">
                                             <span className="truncate text-sm md:text-base">{student.name} {student.nickname && <span className="text-gray-400">({student.nickname})</span>}</span>
@@ -506,10 +525,9 @@ export default function ClassManagementPage() {
                 </div>
             )}
         </div>
-
       </div>
 
-      {/* ================= MODAL เลือกคอร์ส (Mobile Optimized) ================= */}
+      {/* ================= MODAL เลือกคอร์ส ================= */}
       {resolutionQueue.length > 0 && (
         <div className="fixed inset-0 z-[60] bg-gray-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden animate-slide-up border border-white/20 flex flex-col max-h-[85vh]">
@@ -564,7 +582,7 @@ export default function ClassManagementPage() {
         </div>
       )}
 
-      {/* ================= MODAL ค้นหาและเพิ่มนักเรียน (Mobile Optimized) ================= */}
+      {/* ================= MODAL ค้นหาและเพิ่มนักเรียน ================= */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden animate-slide-up border border-white/20 flex flex-col max-h-[85vh]">
