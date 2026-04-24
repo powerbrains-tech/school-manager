@@ -170,7 +170,7 @@ export default async function DashboardPage() {
             )}
         </div>
 
-        {/* 3. Quick Actions เมนูด่วน (ปรับปรุง Grid & เพิ่มปุ่มเช็คชื่อเคาน์เตอร์) */}
+        {/* 3. Quick Actions เมนูด่วน */}
         <div>
           <h3 className="text-xl font-black text-gray-800 mb-6 px-1 tracking-wide flex items-center gap-2">
             🚀 จัดการระบบด่วน
@@ -197,7 +197,7 @@ export default async function DashboardPage() {
               </div>
             </Link>
 
-            {/* ✅ 3. NEW: เช็คชื่อเคาน์เตอร์ (พิมพ์ชื่อ) */}
+            {/* 3. เช็คชื่อเคาน์เตอร์ (พิมพ์ชื่อ) */}
             <Link href="/checkin" className="group bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm hover:shadow-xl hover:border-cyan-300 hover:-translate-y-1 transition-all flex items-center gap-4">
               <span className="text-2xl bg-cyan-50 text-cyan-600 w-14 h-14 flex items-center justify-center rounded-2xl group-hover:scale-110 transition-transform">🛎️</span>
               <div>
@@ -244,6 +244,17 @@ export default async function DashboardPage() {
                 <div>
                   <p className="font-black text-gray-800 group-hover:text-rose-600 transition-colors">จัดการคุณครู</p>
                   <p className="text-[10px] text-gray-400 uppercase font-bold tracking-widest mt-0.5">Teachers</p>
+                </div>
+              </Link>
+            )}
+
+            {/* ✅ 8. NEW: ระบบรายงานผล (Export) */}
+            {isAdmin && (
+              <Link href="/reports" className="group bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm hover:shadow-xl hover:border-emerald-300 hover:-translate-y-1 transition-all flex items-center gap-4">
+                <span className="text-2xl bg-emerald-50 text-emerald-600 w-14 h-14 flex items-center justify-center rounded-2xl group-hover:scale-110 transition-transform">📈</span>
+                <div>
+                  <p className="font-black text-gray-800 group-hover:text-emerald-600 transition-colors">ระบบรายงานผล</p>
+                  <p className="text-[10px] text-gray-400 uppercase font-bold tracking-widest mt-0.5">Export Reports</p>
                 </div>
               </Link>
             )}

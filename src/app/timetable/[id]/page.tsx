@@ -284,6 +284,49 @@ export default function ClassManagementPage() {
     }
   }
 
+  // ✅ ฟังก์ชัน Export ไฟล์ CSV (เพิ่มเข้ามาใหม่)
+  const handleExportCSV = () => {
+    if (enrolledStudents.length === 0) {
+      return showToast('ไม่มีข้อมูลนักเรียนให้ Export', 'warning')
+    }
+
+    const headers = ['ลำดับ', 'รหัสนักเรียน', 'ชื่อ-นามสกุล', 'ชื่อเล่น', 'ระดับชั้น', 'สถานะเช็คชื่อ']
+    const csvRows = [headers.join(',')]
+
+    enrolledStudents.forEach((item, index) => {
+      const s = item.students
+      if (!s) return
+      
+      const status = item.attendance_status === 'present' ? 'มาเรียน' : 'รอเช็คชื่อ'
+      
+      const row = [
+        index + 1,
+        `"${s.student_id || '-'}"`,
+        `"${s.name || '-'}"`,
+        `"${s.nickname || '-'}"`,
+        `"${s.level || '-'}"`,
+        `"${status}"`
+      ]
+      csvRows.push(row.join(','))
+    })
+
+    const csvContent = csvRows.join('\n')
+    // ใส่ \uFEFF เพื่อให้ Excel แสดงภาษาไทยได้ถูกต้อง
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    
+    const subjectName = schedule?.subjects?.name || 'Class'
+    const dateStr = new Date(schedule?.schedule_date || new Date()).toLocaleDateString('th-TH').replace(/\//g, '-')
+    
+    link.href = url
+    link.setAttribute('download', `รายชื่อนักเรียน_${subjectName}_${dateStr}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    showToast('ดาวน์โหลดไฟล์ CSV สำเร็จ!', 'success')
+  }
+
   if (loading) {
     return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div></div>
   }
@@ -444,7 +487,15 @@ export default function ClassManagementPage() {
                   {enrolledStudents.length} / {capacity}
                 </span>
             </h2>
-            <div className="flex gap-2 w-full sm:w-auto">
+            {/* ✅ ใช้ flex-wrap เพื่อกันปุ่มล้นจอในมือถือ */}
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                <button 
+                  onClick={handleExportCSV} 
+                  disabled={enrolledStudents.length === 0}
+                  className="flex-1 sm:flex-none bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-indigo-600 px-3 md:px-4 py-2.5 rounded-xl font-bold shadow-sm transition active:scale-95 text-xs md:text-sm disabled:opacity-50 flex justify-center items-center gap-1.5"
+                >
+                    📥 <span className="hidden sm:inline">Export (CSV)</span><span className="sm:hidden">โหลด</span>
+                </button>
                 <button onClick={handleOpenModal} disabled={isFull} className="flex-1 sm:flex-none bg-white border-2 border-indigo-100 text-indigo-600 hover:bg-indigo-50 px-3 md:px-4 py-2.5 rounded-xl font-bold shadow-sm transition active:scale-95 text-xs md:text-sm disabled:opacity-50 flex justify-center items-center gap-1.5">
                     <span>➕</span> {isFull ? 'เต็มแล้ว' : 'เพิ่มเด็ก'}
                 </button>
