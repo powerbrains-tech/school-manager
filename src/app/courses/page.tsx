@@ -17,7 +17,9 @@ type Student = {
 type Course = {
   id: string
   title: string
-  total_hours: number
+  type: 'hourly' | 'monthly' // ✅ เพิ่มประเภทคอร์ส
+  total_hours: number | null
+  duration_months: number | null // ✅ เพิ่มอายุคอร์ส (เดือน)
   totalEnrolled: number
   activeEnrolled: number
   students: { student: Student; remaining_hours: number }[]
@@ -28,10 +30,15 @@ export default function CoursesPage() {
   const [loading, setLoading] = useState(true)
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null)
   
+  // State สำหรับสร้างคอร์สใหม่
   const [saving, setSaving] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
+  const [courseType, setCourseType] = useState<'hourly' | 'monthly'>('hourly')
+
+  // State สำหรับแก้ไขคอร์ส
   const [editingCourse, setEditingCourse] = useState<Course | null>(null)
   const [updating, setUpdating] = useState(false)
+  const [editCourseType, setEditCourseType] = useState<'hourly' | 'monthly'>('hourly')
 
   useEffect(() => {
     fetchCoursesData()
@@ -40,7 +47,6 @@ export default function CoursesPage() {
   async function fetchCoursesData() {
     setLoading(true)
     try {
-      // ✅ ลบการ .order('created_at', ...) ออกแล้ว เพื่อแก้ปัญหา Column does not exist
       const { data: coursesTable, error: coursesError } = await supabase
         .from('courses')
         .select('*')
@@ -64,6 +70,7 @@ export default function CoursesPage() {
 
         return {
           ...course,
+          type: course.type || 'hourly', // ถ้าของเก่าไม่มีให้ถือเป็น hourly
           totalEnrolled: enrolledInThisCourse.length,
           activeEnrolled: enrolledInThisCourse.filter(e => e.remaining_hours > 0).length,
           students: enrolledInThisCourse.map(e => ({
@@ -73,7 +80,7 @@ export default function CoursesPage() {
         }
       })
 
-      // เรียงคอร์สตามชื่อแทน
+      // เรียงคอร์สตามชื่อ
       mergedCourses.sort((a, b) => a.title.localeCompare(b.title, 'th'))
       setCourses(mergedCourses)
       
@@ -92,9 +99,13 @@ export default function CoursesPage() {
     e.preventDefault()
     setSaving(true)
     const formData = new FormData(e.currentTarget)
+    // ฝังค่า type เข้าไปด้วยเผื่อลืม
+    formData.set('type', courseType)
+
     const result: any = await addCourse(formData)
     if (result.success) {
       formRef.current?.reset()
+      setCourseType('hourly') // กลับไปค่าเริ่มต้น
       fetchCoursesData()
     } else {
       alert(`เกิดข้อผิดพลาด: ${result.error}`)
@@ -117,6 +128,8 @@ export default function CoursesPage() {
     e.preventDefault()
     setUpdating(true)
     const formData = new FormData(e.currentTarget)
+    formData.set('type', editCourseType)
+
     const result: any = await updateCourse(formData)
     if (result.success) {
       setEditingCourse(null)
@@ -125,6 +138,12 @@ export default function CoursesPage() {
       alert(`เกิดข้อผิดพลาด: ${result.error}`)
     }
     setUpdating(false)
+  }
+
+  // Helper ฟังก์ชันสำหรับเปิดหน้าต่างแก้ไขพร้อมตั้งค่าเริ่มต้น
+  const openEditModal = (course: Course) => {
+    setEditingCourse(course)
+    setEditCourseType(course.type || 'hourly')
   }
 
   return (
@@ -161,24 +180,69 @@ export default function CoursesPage() {
             
             {/* ฝั่งซ้าย: ฟอร์มสร้างคอร์สใหม่ */}
             <div className="md:col-span-1">
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 sticky top-8">
-                    <h2 className="text-lg font-black text-gray-800 mb-5 flex items-center gap-2">✨ สร้างคอร์สใหม่</h2>
-                    <form ref={formRef} onSubmit={handleAddCourse} className="space-y-4">
+                <div className="bg-white rounded-[2rem] p-6 md:p-8 shadow-sm border border-gray-100 sticky top-8">
+                    <h2 className="text-lg font-black text-gray-800 mb-6 flex items-center gap-2">✨ สร้างคอร์สใหม่</h2>
+                    
+                    <form ref={formRef} onSubmit={handleAddCourse} className="space-y-5">
+                        
+                        {/* 1. ชื่อคอร์สเรียน */}
                         <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase ml-1 mb-1 block">ชื่อคอร์สเรียน *</label>
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">ชื่อคอร์สเรียน *</label>
                             <input 
                                 type="text" name="title" required placeholder="เช่น ติวเข้ม ม.1"
-                                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-medium text-sm text-gray-800"
+                                className="w-full bg-white border-2 border-gray-100 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition-colors font-medium text-sm text-gray-800"
                             />
                         </div>
+
+                        {/* 2. เลือกประเภทคอร์ส */}
                         <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase ml-1 mb-1 block">จำนวนชั่วโมง *</label>
-                            <input 
-                                type="number" name="total_hours" required min="1" placeholder="เช่น 20"
-                                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-medium text-sm text-gray-800"
-                            />
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">รูปแบบการคิดเวลา *</label>
+                            <div className="grid grid-cols-2 gap-3">
+                              <label className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 cursor-pointer transition-all ${courseType === 'hourly' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                                <input type="radio" name="type" value="hourly" className="hidden" checked={courseType === 'hourly'} onChange={() => setCourseType('hourly')} />
+                                <span className="text-xl mb-1">⏱️</span>
+                                <span className="text-xs font-bold">รายชั่วโมง</span>
+                              </label>
+                              
+                              <label className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 cursor-pointer transition-all ${courseType === 'monthly' ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                                <input type="radio" name="type" value="monthly" className="hidden" checked={courseType === 'monthly'} onChange={() => setCourseType('monthly')} />
+                                <span className="text-xl mb-1">📅</span>
+                                <span className="text-xs font-bold">รายเดือน</span>
+                              </label>
+                            </div>
                         </div>
-                        <button type="submit" disabled={saving} className="w-full bg-indigo-600 text-white font-black py-3.5 rounded-xl shadow-md hover:bg-indigo-700 transition active:scale-95 disabled:opacity-50 mt-4 flex justify-center items-center gap-2">
+
+                        {/* 3. ช่องกรอกข้อมูลที่เปลี่ยนไปตามประเภทคอร์ส */}
+                        <div className="animate-fade-in">
+                          {courseType === 'hourly' ? (
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">จำนวนชั่วโมง *</label>
+                                <div className="relative">
+                                  <input 
+                                      type="number" name="total_hours" required min="1" placeholder="เช่น 20"
+                                      className="w-full bg-white border-2 border-gray-100 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition-colors font-medium text-sm text-gray-800 pr-12"
+                                  />
+                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">ชม.</span>
+                                </div>
+                            </div>
+                          ) : (
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">อายุคอร์สเรียน *</label>
+                                <div className="relative">
+                                  <input 
+                                      type="number" name="duration_months" required min="1" placeholder="เช่น 1, 3, 6, 12"
+                                      className="w-full bg-white border-2 border-gray-100 rounded-xl px-4 py-3 outline-none focus:border-emerald-500 transition-colors font-medium text-sm text-gray-800 pr-16"
+                                  />
+                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">เดือน</span>
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-2 font-medium leading-relaxed bg-gray-50 p-2 rounded-lg border border-gray-100">
+                                  * ระบบจะไม่ตัดชั่วโมงเวลาเช็คชื่อ แต่จะตรวจสอบจากวันหมดอายุแทน
+                                </p>
+                            </div>
+                          )}
+                        </div>
+
+                        <button type="submit" disabled={saving} className="w-full bg-indigo-600 text-white font-black py-3.5 rounded-xl shadow-md hover:bg-indigo-700 transition active:scale-95 disabled:opacity-50 mt-2 flex justify-center items-center gap-2">
                             {saving ? 'กำลังบันทึก...' : '💾 บันทึกข้อมูล'}
                         </button>
                     </form>
@@ -190,29 +254,36 @@ export default function CoursesPage() {
               {loading ? (
                 <div className="py-20 text-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div></div>
               ) : courses.length === 0 ? (
-                <div className="bg-white p-12 rounded-3xl text-center shadow-sm border border-gray-100">
+                <div className="bg-white p-12 rounded-[2rem] text-center shadow-sm border border-gray-100">
                   <span className="text-6xl mb-4 block opacity-30">📭</span>
                   <p className="text-gray-500 font-bold">ยังไม่มีข้อมูลคอร์สเรียน</p>
                 </div>
               ) : (
                 courses.map((course) => (
-                  <div key={course.id} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden transition-all duration-200 hover:shadow-md hover:border-indigo-200">
+                  <div key={course.id} className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden transition-all duration-200 hover:shadow-md hover:border-indigo-200">
                     
                     {/* Header ของแต่ละคอร์ส */}
-                    <div onClick={() => toggleExpand(course.id)} className="p-5 cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition group relative">
+                    <div onClick={() => toggleExpand(course.id)} className="p-5 md:p-6 cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition group relative">
                       <div className="flex items-center gap-4 w-full sm:w-auto">
-                        <div className="w-12 h-12 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center text-xl shadow-inner border border-pink-100 flex-shrink-0">
+                        <div className="w-14 h-14 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-pink-100 flex-shrink-0">
                            {course.title.charAt(0)}
                         </div>
                         <div className="flex-1 pr-4 sm:pr-0">
                           <h2 className="text-lg font-black text-gray-800 group-hover:text-indigo-600 transition truncate">{course.title}</h2>
-                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <div className="flex flex-wrap items-center gap-2 mt-1.5">
                               <span className="text-[10px] text-gray-500 font-bold bg-gray-100 px-2 py-0.5 rounded">
                                   ผู้เรียน {course.totalEnrolled} คน
                               </span>
-                              <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded">
-                                  ⏱️ {course.total_hours || 0} ชม.
-                              </span>
+                              {/* ✅ แสดง Tag ตามประเภทคอร์ส */}
+                              {course.type === 'monthly' ? (
+                                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded">
+                                      📅 {course.duration_months || 0} เดือน
+                                  </span>
+                              ) : (
+                                  <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
+                                      ⏱️ {course.total_hours || 0} ชม.
+                                  </span>
+                              )}
                           </div>
                         </div>
                       </div>
@@ -220,13 +291,13 @@ export default function CoursesPage() {
                       <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto border-t sm:border-t-0 pt-4 sm:pt-0 border-gray-100">
                         {/* ปุ่มแก้ไข / ลบ */}
                         <div className="flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity mr-2">
-                           <button onClick={(e) => { e.stopPropagation(); setEditingCourse(course); }} className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition border border-transparent hover:border-indigo-100 bg-gray-50 sm:bg-transparent" title="แก้ไข">✏️</button>
-                           <button onClick={(e) => handleDelete(e, course.id, course.title)} className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition border border-transparent hover:border-red-100 bg-gray-50 sm:bg-transparent" title="ลบ">🗑️</button>
+                           <button onClick={(e) => { e.stopPropagation(); openEditModal(course); }} className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition border border-transparent hover:border-indigo-100 bg-gray-50 sm:bg-transparent" title="แก้ไข">✏️</button>
+                           <button onClick={(e) => handleDelete(e, course.id, course.title)} className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition border border-transparent hover:border-red-100 bg-gray-50 sm:bg-transparent" title="ลบ">🗑️</button>
                         </div>
 
                         <div className="text-right">
                            <span className="text-[10px] font-bold text-gray-400 uppercase block leading-none mb-1">กำลังเรียน</span>
-                           <span className={`text-lg font-black leading-none ${course.activeEnrolled > 0 ? 'text-green-600' : 'text-gray-300'}`}>
+                           <span className={`text-xl font-black leading-none ${course.activeEnrolled > 0 ? 'text-green-600' : 'text-gray-300'}`}>
                              {course.activeEnrolled} <span className="text-xs font-medium">คน</span>
                            </span>
                         </div>
@@ -238,13 +309,13 @@ export default function CoursesPage() {
 
                     {/* รายชื่อนักเรียน (กางออกเมื่อคลิก) */}
                     {expandedCourse === course.id && (
-                      <div className="bg-gray-50 border-t border-gray-100 p-5 animate-fade-in-up">
+                      <div className="bg-gray-50/80 border-t border-gray-100 p-5 md:p-6 animate-fade-in-up">
                         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">👥 รายชื่อผู้เรียนในคอร์ส</h3>
                         
                         {course.students.length === 0 ? (
-                           <div className="text-center py-6 text-sm text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-2xl">ยังไม่มีนักเรียนลงทะเบียนคอร์สนี้</div>
+                           <div className="text-center py-6 text-sm text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-2xl bg-white">ยังไม่มีนักเรียนลงทะเบียนคอร์สนี้</div>
                         ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             {course.students.map((item, idx) => (
                               <Link href={`/students/${item.student.student_id}`} key={idx}>
                                 <div className="bg-white p-3 rounded-2xl border border-gray-200 hover:border-indigo-300 hover:shadow-sm transition flex items-center justify-between group">
@@ -260,20 +331,28 @@ export default function CoursesPage() {
                                         <p className="text-sm font-bold text-gray-800 truncate group-hover:text-indigo-600 transition">
                                           {item.student.nickname || item.student.name}
                                         </p>
-                                        <p className="text-[10px] text-gray-500 font-mono mt-0.5 bg-gray-100 inline-block px-1 rounded">
+                                        <p className="text-[10px] text-gray-500 font-mono mt-0.5 bg-gray-50 inline-block px-1.5 py-0.5 rounded border border-gray-100">
                                           {item.student.student_id}
                                         </p>
                                      </div>
                                   </div>
 
-                                  <div className={`flex-shrink-0 px-2 py-1 rounded-lg border text-center min-w-[50px] shadow-sm ${
-                                     item.remaining_hours <= 0 ? 'bg-gray-50 border-gray-200 text-gray-400' :
-                                     item.remaining_hours <= 3 ? 'bg-orange-50 border-orange-200 text-orange-600' :
-                                     'bg-green-50 border-green-200 text-green-600'
-                                  }`}>
-                                     <span className="block text-[9px] font-bold uppercase opacity-80 leading-none mb-0.5">ชั่วโมง</span>
-                                     <span className="block text-sm font-black leading-none">{item.remaining_hours}</span>
-                                  </div>
+                                  {/* ✅ ถ้าเป็นคอร์สรายเดือน จะโชว์ไอคอนเดือนแทนชั่วโมง */}
+                                  {course.type === 'monthly' ? (
+                                    <div className="flex-shrink-0 px-2 py-1.5 rounded-lg border bg-emerald-50 border-emerald-100 text-emerald-600 text-center min-w-[50px] shadow-sm">
+                                      <span className="block text-[9px] font-bold uppercase opacity-80 leading-none mb-1">คอร์ส</span>
+                                      <span className="block text-[10px] font-black leading-none">รายเดือน</span>
+                                    </div>
+                                  ) : (
+                                    <div className={`flex-shrink-0 px-2 py-1 rounded-lg border text-center min-w-[50px] shadow-sm ${
+                                       item.remaining_hours <= 0 ? 'bg-gray-50 border-gray-200 text-gray-400' :
+                                       item.remaining_hours <= 3 ? 'bg-orange-50 border-orange-200 text-orange-600' :
+                                       'bg-green-50 border-green-200 text-green-600'
+                                    }`}>
+                                       <span className="block text-[9px] font-bold uppercase opacity-80 leading-none mb-0.5">ชั่วโมง</span>
+                                       <span className="block text-sm font-black leading-none">{item.remaining_hours}</span>
+                                    </div>
+                                  )}
                                 </div>
                               </Link>
                             ))}
@@ -297,25 +376,63 @@ export default function CoursesPage() {
               <button onClick={() => setEditingCourse(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:bg-gray-100 text-gray-500 font-bold transition shadow-sm active:scale-95">✕</button>
             </div>
             
-            <form onSubmit={handleUpdateCourse} className="p-6 space-y-4">
+            <form onSubmit={handleUpdateCourse} className="p-6 space-y-5">
               <input type="hidden" name="id" value={editingCourse.id} />
               
+              {/* 1. ชื่อคอร์สเรียน */}
               <div>
-                  <label className="text-xs font-bold text-gray-400 uppercase ml-1 mb-1 block">ชื่อคอร์สเรียน *</label>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide ml-1 mb-1.5 block">ชื่อคอร์สเรียน *</label>
                   <input 
                       type="text" name="title" required defaultValue={editingCourse.title}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-medium text-sm text-gray-800"
-                  />
-              </div>
-              <div>
-                  <label className="text-xs font-bold text-gray-400 uppercase ml-1 mb-1 block">จำนวนชั่วโมง *</label>
-                  <input 
-                      type="number" name="total_hours" required min="1" defaultValue={editingCourse.total_hours}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 font-medium text-sm text-gray-800"
+                      className="w-full bg-white border-2 border-gray-100 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition-colors font-medium text-sm text-gray-800"
                   />
               </div>
 
-              <div className="pt-4 flex gap-3">
+              {/* 2. เลือกประเภทคอร์ส (ตอนแก้ไข) */}
+              <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wide ml-1 mb-1.5 block">รูปแบบการคิดเวลา *</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${editCourseType === 'hourly' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                      <input type="radio" name="type" value="hourly" className="hidden" checked={editCourseType === 'hourly'} onChange={() => setEditCourseType('hourly')} />
+                      <span className="text-base">⏱️</span>
+                      <span className="text-xs font-bold">รายชั่วโมง</span>
+                    </label>
+                    <label className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${editCourseType === 'monthly' ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                      <input type="radio" name="type" value="monthly" className="hidden" checked={editCourseType === 'monthly'} onChange={() => setEditCourseType('monthly')} />
+                      <span className="text-base">📅</span>
+                      <span className="text-xs font-bold">รายเดือน</span>
+                    </label>
+                  </div>
+              </div>
+
+              {/* 3. ช่องกรอกที่เปลี่ยนไปตามประเภท (ตอนแก้ไข) */}
+              <div className="animate-fade-in">
+                {editCourseType === 'hourly' ? (
+                  <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wide ml-1 mb-1.5 block">จำนวนชั่วโมง *</label>
+                      <div className="relative">
+                        <input 
+                            type="number" name="total_hours" required min="1" defaultValue={editingCourse.total_hours || ''}
+                            className="w-full bg-white border-2 border-gray-100 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition-colors font-medium text-sm text-gray-800 pr-12"
+                        />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">ชม.</span>
+                      </div>
+                  </div>
+                ) : (
+                  <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wide ml-1 mb-1.5 block">อายุคอร์สเรียน *</label>
+                      <div className="relative">
+                        <input 
+                            type="number" name="duration_months" required min="1" defaultValue={editingCourse.duration_months || ''}
+                            className="w-full bg-white border-2 border-gray-100 rounded-xl px-4 py-3 outline-none focus:border-emerald-500 transition-colors font-medium text-sm text-gray-800 pr-16"
+                        />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">เดือน</span>
+                      </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex gap-3">
                   <button type="button" onClick={() => setEditingCourse(null)} disabled={updating} className="flex-1 bg-white border-2 border-gray-200 text-gray-600 font-bold py-3.5 rounded-xl hover:bg-gray-50 transition active:scale-95 disabled:opacity-50">
                       ยกเลิก
                   </button>
