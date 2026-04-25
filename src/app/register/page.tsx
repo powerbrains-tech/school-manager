@@ -6,8 +6,9 @@ import { supabase } from '../lib/supabase'
 import Link from 'next/link'
 
 const subjectOptions = ['คณิต', 'วิทย์', 'อังกฤษ', 'ไทย', 'สังคม', 'จินตคณิต']
+// ✅ 1. เพิ่มตัวเลือกวันเรียน
+const dayOptions = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์']
 
-// ✅ อัปเดต Type ให้รองรับข้อมูลคอร์สแบบใหม่
 type CourseOption = {
   id: string
   title: string
@@ -23,7 +24,6 @@ export default function RegisterPage() {
   
   const [courses, setCourses] = useState<CourseOption[]>([])
   
-  // ✅ เพิ่ม State เพื่อจำว่าแอดมินเลือกคอร์สไหนอยู่ (เพื่อเอาไปโชว์ UI ให้ถูกประเภท)
   const [selectedCourse, setSelectedCourse] = useState<CourseOption | null>(null)
   const [selectedHours, setSelectedHours] = useState<number | string>('')
   
@@ -31,18 +31,19 @@ export default function RegisterPage() {
   const [isOtherChecked, setIsOtherChecked] = useState(false)
   const [otherSubject, setOtherSubject] = useState('')
 
+  // ✅ 2. เพิ่ม State สำหรับเก็บวันเรียนที่เลือก
+  const [selectedStudyDays, setSelectedStudyDays] = useState<string[]>([])
+
   const formRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
     async function loadCourses() {
-      // ✅ ดึงข้อมูล type และ duration_months มาด้วย
       const { data } = await supabase.from('courses').select('id, title, total_hours, type, duration_months').order('title')
       if (data) setCourses(data as CourseOption[])
     }
     loadCourses()
   }, [])
 
-  // ✅ ฟังก์ชันอัจฉริยะ เปลี่ยน UI ตามประเภทคอร์ส
   const handleCourseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const courseId = e.target.value
     const foundCourse = courses.find(c => c.id === courseId)
@@ -51,11 +52,11 @@ export default function RegisterPage() {
 
     if (foundCourse) {
       if (foundCourse.type === 'hourly') {
-        setSelectedHours(foundCourse.total_hours || 0) // ดึงชั่วโมงคอร์สมาใส่
+        setSelectedHours(foundCourse.total_hours || 0)
       } else if (foundCourse.type === 'monthly') {
-        setSelectedHours(0) // รายเดือนไม่ใช้ชั่วโมง
+        setSelectedHours(0)
       } else if (foundCourse.type === 'private') {
-        setSelectedHours('') // 👤 คอร์ส private ปล่อยว่างให้แอดมินกรอกเอง
+        setSelectedHours('')
       }
     } else {
       setSelectedHours('')
@@ -65,6 +66,13 @@ export default function RegisterPage() {
   const handleSubjectCheckbox = (subject: string) => {
     setSelectedSubjects(prev => 
       prev.includes(subject) ? prev.filter(s => s !== subject) : [...prev, subject]
+    )
+  }
+
+  // ✅ 3. ฟังก์ชันจัดการการคลิกเลือกวัน
+  const handleDayCheckbox = (day: string) => {
+    setSelectedStudyDays(prev => 
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
     )
   }
 
@@ -81,9 +89,10 @@ export default function RegisterPage() {
         setLastStudentId(result.studentId as string) 
         
         formRef.current?.reset()
-        setSelectedCourse(null) // รีเซ็ตการเลือกคอร์ส
+        setSelectedCourse(null) 
         setSelectedHours('')
         setSelectedSubjects([])
+        setSelectedStudyDays([]) // ✅ รีเซ็ตวันเรียน
         setIsOtherChecked(false)
         setOtherSubject('')
       } else {
@@ -134,6 +143,8 @@ export default function RegisterPage() {
           <form ref={formRef} action={handleSubmit} className="space-y-5">
             
             <input type="hidden" name="enrolled_subjects" value={finalSubjectsList} />
+            {/* ✅ 4. ซ่อน Input สำหรับส่งค่าวันเรียนไปให้ Backend */}
+            <input type="hidden" name="study_days" value={selectedStudyDays.join(', ')} />
 
             {/* โซนที่ 1: ข้อมูลนักเรียน */}
             <div className="space-y-4">
@@ -251,7 +262,6 @@ export default function RegisterPage() {
                 </div>
               </div>
 
-              {/* เลือกคอร์สเรียน */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">คอร์สที่สมัคร *</label>
                 <select name="course_id" required onChange={handleCourseChange} className="w-full bg-indigo-50 border border-indigo-200 text-indigo-900 font-bold rounded-xl px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition cursor-pointer">
@@ -264,36 +274,75 @@ export default function RegisterPage() {
                 </select>
               </div>
 
-              {/* ✅ ไฮไลท์: เปลี่ยน UI การกรอกชั่วโมงตามประเภทคอร์ส */}
-              {selectedCourse?.type === 'monthly' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">อายุคอร์ส (เดือน)</label>
-                  <div className="w-full bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl p-3 font-bold cursor-not-allowed flex items-center gap-2">
-                    📅 {selectedCourse.duration_months} เดือน (คอร์สรายเดือน ไม่หักชั่วโมง)
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">วันที่เริ่มเรียน *</label>
+                  <input 
+                    name="start_date" 
+                    type="date" 
+                    required 
+                    defaultValue={new Date().toISOString().split('T')[0]} 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-green-500 outline-none transition font-bold" 
+                  />
+                </div>
+                
+                {selectedCourse?.type === 'monthly' ? (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">อายุคอร์ส (เดือน)</label>
+                    <div className="w-full bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl p-3 font-bold cursor-not-allowed flex items-center gap-2 h-[48px]">
+                      📅 {selectedCourse.duration_months} เดือน (ไม่หักชั่วโมง)
+                    </div>
+                    <input type="hidden" name="hours" value="0" />
                   </div>
-                  <input type="hidden" name="hours" value="0" />
+                ) : selectedCourse?.type === 'private' ? (
+                  <div>
+                    <label className="block text-sm font-semibold text-blue-700 mb-1">จำนวนชั่วโมงที่ลงเรียน *</label>
+                    <input 
+                      name="hours" type="number" required min="1" 
+                      value={selectedHours} onChange={(e) => setSelectedHours(e.target.value)} 
+                      placeholder="ระบุชั่วโมงให้นักเรียนคนนี้" 
+                      className="w-full bg-blue-50 border border-blue-200 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none transition font-black text-blue-800" 
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">จำนวนชั่วโมง *</label>
+                    <input 
+                      name="hours" type="number" required min="1"
+                      value={selectedHours} onChange={(e) => setSelectedHours(e.target.value)} 
+                      placeholder="จำนวนชั่วโมงเรียน" 
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-green-500 outline-none transition font-black text-gray-800" 
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* ✅ 5. เพิ่ม UI เลือกวันเรียนที่นี่ */}
+              <div className="pt-2">
+                <label className="block text-sm font-bold text-gray-700 mb-2">📅 วันที่มาเรียนปกติ (ติ๊กเลือกได้หลายวัน)</label>
+                <div className="flex flex-wrap gap-2">
+                  {dayOptions.map(day => {
+                    const isSelected = selectedStudyDays.includes(day);
+                    // ทำสีพิเศษให้วันหยุด เสาร์-อาทิตย์
+                    const isWeekend = day === 'เสาร์' || day === 'อาทิตย์';
+                    return (
+                      <label key={day} className={`flex-1 min-w-[60px] text-center py-2.5 px-2 rounded-xl border-2 cursor-pointer transition-all text-xs font-bold ${
+                        isSelected 
+                          ? (isWeekend ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-green-500 bg-green-50 text-green-700')
+                          : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'
+                      }`}>
+                        <input 
+                          type="checkbox" 
+                          className="hidden" 
+                          checked={isSelected}
+                          onChange={() => handleDayCheckbox(day)}
+                        />
+                        {day}
+                      </label>
+                    )
+                  })}
                 </div>
-              ) : selectedCourse?.type === 'private' ? (
-                <div>
-                  <label className="block text-sm font-semibold text-blue-700 mb-1">จำนวนชั่วโมงที่ลงเรียน * <span className="text-xs text-blue-500 font-normal">(คอร์สส่วนตัว)</span></label>
-                  <input 
-                    name="hours" type="number" required min="1" 
-                    value={selectedHours} onChange={(e) => setSelectedHours(e.target.value)} 
-                    placeholder="ระบุชั่วโมงให้นักเรียนคนนี้" 
-                    className="w-full bg-blue-50 border border-blue-200 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none transition font-black text-lg text-blue-800" 
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">จำนวนชั่วโมง *</label>
-                  <input 
-                    name="hours" type="number" required min="1"
-                    value={selectedHours} onChange={(e) => setSelectedHours(e.target.value)} 
-                    placeholder="จำนวนชั่วโมงเรียน" 
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-green-500 outline-none transition font-black text-lg text-gray-800" 
-                  />
-                </div>
-              )}
+              </div>
 
               <div className="pt-2">
                 <label className="block text-sm font-bold text-gray-700 mb-2">รายวิชาที่เรียน (เลือกได้มากกว่า 1 วิชา)</label>

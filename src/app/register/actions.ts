@@ -9,11 +9,12 @@ export async function registerStudent(formData: FormData) {
   const access = await requirePermission('edit') 
   if (!access.ok) return { success: false, error: access.error }
 
-  // ❌ เราไม่ต้องรับ studentId จาก Form แล้ว ให้ระบบสร้างให้แทน
   let studentId = '' 
   const course_id = formData.get('course_id') as string
   const hours = Number.parseFloat((formData.get('hours') as string) || '0')
   const photoFile = formData.get('photo') as File
+
+  const start_date = (formData.get('start_date') as string) || new Date().toISOString().split('T')[0]
 
   const prefix = formData.get('prefix') as string || null
   const name = (formData.get('name') as string) || ''
@@ -29,32 +30,32 @@ export async function registerStudent(formData: FormData) {
   const parent_line_id = formData.get('parent_line_id') as string || null
 
   const enrolled_subjects = formData.get('enrolled_subjects') as string || null
+  
+  // ✅ รับค่าวันเรียนปกติจากหน้าฟอร์ม
+  const study_days = formData.get('study_days') as string || null
 
-  // ✅ 1. ระบบ Auto-Generate รหัสนักเรียน
+  // 1. ระบบ Auto-Generate รหัสนักเรียน
   const { data: latest } = await supabase
     .from('students')
     .select('student_id')
-    .ilike('student_id', 'S%') // หาเฉพาะที่ขึ้นต้นด้วย S
+    .ilike('student_id', 'S%') 
     .order('student_id', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   if (latest && latest.student_id) {
-    // แกะเอาเฉพาะตัวเลข เช่น 'S0015' -> '0015' -> 15
     const numMatch = latest.student_id.match(/\d+/)
     const currentNum = numMatch ? parseInt(numMatch[0], 10) : 0
-    // +1 แล้วเติมเลข 0 ข้างหน้าให้ครบ 4 หลัก (S0016)
     studentId = `S${(currentNum + 1).toString().padStart(4, '0')}`
   } else {
-    // ถ้ายังไม่มีเด็กในระบบเลย เริ่มต้นที่ S0001
     studentId = 'S0001' 
   }
 
-  // 2. Validation
-  if (!name || !studentId || !course_id || !Number.isFinite(hours) || hours <= 0) {
-    return { success: false, error: 'กรุณากรอกข้อมูลสำคัญให้ครบถ้วน' }
+  if (!name || !studentId || !course_id || !Number.isFinite(hours) || hours < 0) {
+    return { success: false, error: 'กรุณากรอกข้อมูลสำคัญให้ครบถ้วน (ตรวจสอบชั่วโมงหรือชื่อนักเรียน)' }
   }
 
+  // 3. จัดการอัปโหลดรูปภาพ
   let imageUrl: string | null = null
   if (photoFile && photoFile.size > 0) {
     try {
@@ -90,7 +91,7 @@ export async function registerStudent(formData: FormData) {
 
   let studentDbId: string | null = null
 
-  // เช็คเผื่อเหนียว (กันรหัสซ้ำ)
+  // 4. บันทึกข้อมูลนักเรียน (Insert หรือ Update)
   const { data: existingStudent } = await supabase
     .from('students')
     .select('id, image_url')
@@ -127,13 +128,33 @@ export async function registerStudent(formData: FormData) {
     studentDbId = newStudent.id
   }
 
-  // บันทึกคอร์สเรียน
+  // 5. ดึงข้อมูลคอร์สเพื่อมาคำนวณวันหมดอายุ (ถ้าเป็นคอร์สรายเดือน)
+  const { data: courseData } = await supabase
+    .from('courses')
+    .select('type, duration_months')
+    .eq('id', course_id)
+    .single()
+
+  let expiry_date: string | null = null
+  let final_hours = hours
+
+  if (courseData?.type === 'monthly') {
+    final_hours = 0; 
+    const startDateObj = new Date(start_date)
+    startDateObj.setMonth(startDateObj.getMonth() + (courseData.duration_months || 1))
+    expiry_date = startDateObj.toISOString().split('T')[0] 
+  }
+
+  // 6. บันทึกข้อมูลการลงทะเบียน (เพิ่ม study_days)
   const { error: enrollmentError } = await supabase.from('enrollments').insert([
     {
       student_id: studentDbId,
       course_id: course_id,
-      remaining_hours: hours,
-      enrolled_subjects: enrolled_subjects 
+      remaining_hours: final_hours,
+      enrolled_subjects: enrolled_subjects,
+      start_date: start_date,     
+      expiry_date: expiry_date,    
+      study_days: study_days // ✅ บันทึกวันที่มาเรียนปกติ
     },
   ])
 
@@ -143,11 +164,13 @@ export async function registerStudent(formData: FormData) {
   revalidatePath('/courses')
   revalidatePath('/dashboard')
   
-  // ✅ 3. ส่งรหัสที่สร้างใหม่กลับไปให้หน้าเว็บ เพื่อไปโชว์ในปุ่มเปิดดู QR Code
   return { success: true, studentId: studentId }
 }
 
-// (ฟังก์ชัน recordAttendance คงไว้เหมือนเดิม)
+// ==============================================
+// ⚠️ หมายเหตุ: ฟังก์ชัน recordAttendance นี้เป็นของเดิม
+// ในอนาคตเราจะต้องมาอัปเกรดให้รองรับการสแกนคอร์สรายเดือนด้วยครับ
+// ==============================================
 export async function recordAttendance(studentId: string) {
   const access = await requirePermission('edit')
   if (!access.ok) return { success: false, message: access.error }

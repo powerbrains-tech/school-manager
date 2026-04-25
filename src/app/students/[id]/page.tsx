@@ -16,10 +16,10 @@ type Enrollment = {
   id: number
   remaining_hours: number
   bill_number?: string | null
+  study_days?: string | null // ✅ เพิ่ม field สำหรับรองรับวันมาเรียน
   courses: Course | null
 }
 
-// ✅ อัปเดต Type ให้รู้จักข้อมูลใหม่
 type StudentRecord = {
   id: string
   name: string
@@ -111,6 +111,7 @@ export default function StudentProfile() {
             id,
             remaining_hours,
             bill_number,
+            study_days, 
             courses (title, id)
           )
         `)
@@ -296,6 +297,15 @@ export default function StudentProfile() {
       return logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear()
   }).length
 
+  // ✅ ดึงวันเรียนทั้งหมดของนักเรียนคนนี้มาโชว์ที่เดียว (ป้องกันข้อมูลซ้ำ)
+  const allStudyDays = Array.from(
+    new Set(
+      student?.enrollments
+        .flatMap(e => (e.study_days ? e.study_days.split(', ') : []))
+        .filter(Boolean)
+    )
+  )
+
   const toastClassName =
     toast?.type === 'success' ? 'border-green-200 bg-green-50 text-green-800'
       : toast?.type === 'error' ? 'border-red-200 bg-red-50 text-red-800'
@@ -324,7 +334,6 @@ export default function StudentProfile() {
     )
   }
 
-  // คำนวณอายุจาก วันเกิด (dob)
   let ageString = '-'
   if (student.dob) {
     const birthDate = new Date(student.dob)
@@ -385,7 +394,7 @@ export default function StudentProfile() {
               <fieldset disabled={saving || deleting} className="space-y-4 disabled:opacity-70">
                 <input type="hidden" name="studentId" value={student.student_id} />
 
-                {/* ✅ แก้ไขข้อมูลส่วนตัว */}
+                {/* แก้ไขข้อมูลส่วนตัว */}
                 <div className="bg-gray-50 p-5 rounded-3xl border border-gray-100 space-y-4 shadow-inner">
                     <div className="grid grid-cols-3 gap-2">
                         <div className="col-span-1">
@@ -450,7 +459,7 @@ export default function StudentProfile() {
                     </div>
                 </div>
 
-                {/* ✅ แก้ไขข้อมูลผู้ปกครอง */}
+                {/* แก้ไขข้อมูลผู้ปกครอง */}
                 <div className="bg-blue-50 p-5 rounded-3xl border border-blue-100 space-y-4 shadow-sm">
                     <h3 className="text-sm font-black text-blue-700 uppercase tracking-wider flex items-center gap-2 mb-2">
                         👨‍👩‍👧 ข้อมูลผู้ปกครอง
@@ -524,7 +533,7 @@ export default function StudentProfile() {
             </form>
           ) : (
             <>
-              {/* ✅ โหมดดูข้อมูลปกติ */}
+              {/* โหมดดูข้อมูลปกติ */}
               <h1 className="text-2xl font-black text-gray-900 tracking-tight mt-2">
                 {student.prefix} {student.name}
               </h1>
@@ -559,9 +568,32 @@ export default function StudentProfile() {
                 </div>
               </div>
 
+              {/* ✅ ไฮไลท์ใหม่: แสดงวันที่มาเรียน (Study Days) */}
+              {allStudyDays.length > 0 && (
+                <div className="mt-4 flex flex-col items-center">
+                  <span className="text-[10px] text-green-600 font-bold uppercase tracking-widest mb-2 flex items-center gap-1">
+                    📅 วันที่มาเรียนปกติ
+                  </span>
+                  <div className="flex flex-wrap justify-center gap-1.5">
+                    {allStudyDays.map(day => {
+                      const isWeekend = day === 'เสาร์' || day === 'อาทิตย์'
+                      return (
+                        <span key={day} className={`px-2.5 py-1 text-[10px] font-black rounded-lg border ${
+                          isWeekend 
+                            ? 'bg-orange-50 text-orange-600 border-orange-100' 
+                            : 'bg-green-50 text-green-600 border-green-100'
+                        }`}>
+                          {day}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* ข้อมูลผู้ปกครอง */}
               {(student.parent_name || student.parent_phone || student.parent_line_id) && (
-                <div className="bg-blue-50/50 rounded-2xl p-5 mt-4 border border-blue-100 text-left relative overflow-hidden">
+                <div className="bg-blue-50/50 rounded-2xl p-5 mt-5 border border-blue-100 text-left relative overflow-hidden">
                    <div className="absolute right-2 -bottom-2 text-6xl opacity-5">👪</div>
                    <h4 className="text-xs font-black text-blue-800 uppercase tracking-wider mb-3 flex items-center gap-2">👨‍👩‍👧 ข้อมูลผู้ปกครอง</h4>
                    
@@ -591,7 +623,7 @@ export default function StudentProfile() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3 mt-6 print:hidden">
+              <div className="grid grid-cols-2 gap-3 mt-5 print:hidden">
                  <div className="bg-gradient-to-b from-indigo-50 to-white border border-indigo-100 rounded-2xl p-4 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition">
                     <span className="text-2xl mb-1 drop-shadow-sm">🔥</span>
                     <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">มาเรียนเดือนนี้</span>
