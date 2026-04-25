@@ -7,12 +7,24 @@ import Link from 'next/link'
 
 const subjectOptions = ['คณิต', 'วิทย์', 'อังกฤษ', 'ไทย', 'สังคม', 'จินตคณิต']
 
+// ✅ อัปเดต Type ให้รองรับข้อมูลคอร์สแบบใหม่
+type CourseOption = {
+  id: string
+  title: string
+  total_hours: number | null
+  type: 'hourly' | 'monthly' | 'private'
+  duration_months: number | null
+}
+
 export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null)
   const [lastStudentId, setLastStudentId] = useState<string | null>(null)
   
-  const [courses, setCourses] = useState<{ id: string; title: string; total_hours: number }[]>([])
+  const [courses, setCourses] = useState<CourseOption[]>([])
+  
+  // ✅ เพิ่ม State เพื่อจำว่าแอดมินเลือกคอร์สไหนอยู่ (เพื่อเอาไปโชว์ UI ให้ถูกประเภท)
+  const [selectedCourse, setSelectedCourse] = useState<CourseOption | null>(null)
   const [selectedHours, setSelectedHours] = useState<number | string>('')
   
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([])
@@ -23,17 +35,28 @@ export default function RegisterPage() {
 
   useEffect(() => {
     async function loadCourses() {
-      const { data } = await supabase.from('courses').select('id, title, total_hours').order('title')
-      if (data) setCourses(data)
+      // ✅ ดึงข้อมูล type และ duration_months มาด้วย
+      const { data } = await supabase.from('courses').select('id, title, total_hours, type, duration_months').order('title')
+      if (data) setCourses(data as CourseOption[])
     }
     loadCourses()
   }, [])
 
+  // ✅ ฟังก์ชันอัจฉริยะ เปลี่ยน UI ตามประเภทคอร์ส
   const handleCourseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const courseId = e.target.value
     const foundCourse = courses.find(c => c.id === courseId)
+    
+    setSelectedCourse(foundCourse || null)
+
     if (foundCourse) {
-      setSelectedHours(foundCourse.total_hours)
+      if (foundCourse.type === 'hourly') {
+        setSelectedHours(foundCourse.total_hours || 0) // ดึงชั่วโมงคอร์สมาใส่
+      } else if (foundCourse.type === 'monthly') {
+        setSelectedHours(0) // รายเดือนไม่ใช้ชั่วโมง
+      } else if (foundCourse.type === 'private') {
+        setSelectedHours('') // 👤 คอร์ส private ปล่อยว่างให้แอดมินกรอกเอง
+      }
     } else {
       setSelectedHours('')
     }
@@ -54,11 +77,11 @@ export default function RegisterPage() {
       const result = await registerStudent(formData)
       
       if (result.success) {
-        // ✅ รับค่า ID จากหลังบ้านมาโชว์ให้แอดมินเห็น
         setMessage({ text: `✅ ลงทะเบียนสำเร็จ! รหัสนักเรียนใหม่คือ ${result.studentId}`, type: 'success' })
         setLastStudentId(result.studentId as string) 
         
         formRef.current?.reset()
+        setSelectedCourse(null) // รีเซ็ตการเลือกคอร์ส
         setSelectedHours('')
         setSelectedSubjects([])
         setIsOtherChecked(false)
@@ -221,7 +244,6 @@ export default function RegisterPage() {
             <div className="space-y-4 pt-4 border-t border-gray-100">
               <h3 className="text-md font-bold text-gray-800 border-b pb-2">📚 ข้อมูลการสมัครเรียน</h3>
 
-              {/* ✅ ปรับปรุงจุดนี้: เอาช่องพิมพ์ออก เปลี่ยนเป็นป้ายบอกสถานะแทน */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">รหัสนักเรียน (ID)</label>
                 <div className="w-full bg-gray-200 border border-gray-300 text-gray-500 rounded-xl p-3 font-bold cursor-not-allowed flex items-center gap-2">
@@ -229,20 +251,49 @@ export default function RegisterPage() {
                 </div>
               </div>
 
+              {/* เลือกคอร์สเรียน */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">คอร์สที่สมัคร *</label>
                 <select name="course_id" required onChange={handleCourseChange} className="w-full bg-indigo-50 border border-indigo-200 text-indigo-900 font-bold rounded-xl px-4 py-3 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition cursor-pointer">
                   <option value="">-- เลือกคอร์สเรียน --</option>
                   {courses.map(course => (
-                    <option key={course.id} value={course.id}>{course.title} ({course.total_hours} ชม.)</option>
+                    <option key={course.id} value={course.id}>
+                      {course.title} {course.type === 'monthly' ? `(รายเดือน)` : course.type === 'private' ? `(ส่วนตัว)` : `(${course.total_hours} ชม.)`}
+                    </option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">จำนวนชั่วโมง *</label>
-                <input name="hours" type="number" required value={selectedHours} onChange={(e) => setSelectedHours(e.target.value)} placeholder="จำนวนชั่วโมงเรียน" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-green-500 outline-none transition font-black text-lg text-gray-800" />
-              </div>
+              {/* ✅ ไฮไลท์: เปลี่ยน UI การกรอกชั่วโมงตามประเภทคอร์ส */}
+              {selectedCourse?.type === 'monthly' ? (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">อายุคอร์ส (เดือน)</label>
+                  <div className="w-full bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl p-3 font-bold cursor-not-allowed flex items-center gap-2">
+                    📅 {selectedCourse.duration_months} เดือน (คอร์สรายเดือน ไม่หักชั่วโมง)
+                  </div>
+                  <input type="hidden" name="hours" value="0" />
+                </div>
+              ) : selectedCourse?.type === 'private' ? (
+                <div>
+                  <label className="block text-sm font-semibold text-blue-700 mb-1">จำนวนชั่วโมงที่ลงเรียน * <span className="text-xs text-blue-500 font-normal">(คอร์สส่วนตัว)</span></label>
+                  <input 
+                    name="hours" type="number" required min="1" 
+                    value={selectedHours} onChange={(e) => setSelectedHours(e.target.value)} 
+                    placeholder="ระบุชั่วโมงให้นักเรียนคนนี้" 
+                    className="w-full bg-blue-50 border border-blue-200 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none transition font-black text-lg text-blue-800" 
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">จำนวนชั่วโมง *</label>
+                  <input 
+                    name="hours" type="number" required min="1"
+                    value={selectedHours} onChange={(e) => setSelectedHours(e.target.value)} 
+                    placeholder="จำนวนชั่วโมงเรียน" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-green-500 outline-none transition font-black text-lg text-gray-800" 
+                  />
+                </div>
+              )}
 
               <div className="pt-2">
                 <label className="block text-sm font-bold text-gray-700 mb-2">รายวิชาที่เรียน (เลือกได้มากกว่า 1 วิชา)</label>

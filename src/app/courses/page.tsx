@@ -17,9 +17,9 @@ type Student = {
 type Course = {
   id: string
   title: string
-  type: 'hourly' | 'monthly' // ✅ เพิ่มประเภทคอร์ส
+  type: 'hourly' | 'monthly' | 'private' // ✅ เพิ่ม private
   total_hours: number | null
-  duration_months: number | null // ✅ เพิ่มอายุคอร์ส (เดือน)
+  duration_months: number | null
   totalEnrolled: number
   activeEnrolled: number
   students: { student: Student; remaining_hours: number }[]
@@ -33,12 +33,12 @@ export default function CoursesPage() {
   // State สำหรับสร้างคอร์สใหม่
   const [saving, setSaving] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
-  const [courseType, setCourseType] = useState<'hourly' | 'monthly'>('hourly')
+  const [courseType, setCourseType] = useState<'hourly' | 'monthly' | 'private'>('hourly')
 
   // State สำหรับแก้ไขคอร์ส
   const [editingCourse, setEditingCourse] = useState<Course | null>(null)
   const [updating, setUpdating] = useState(false)
-  const [editCourseType, setEditCourseType] = useState<'hourly' | 'monthly'>('hourly')
+  const [editCourseType, setEditCourseType] = useState<'hourly' | 'monthly' | 'private'>('hourly')
 
   useEffect(() => {
     fetchCoursesData()
@@ -70,7 +70,7 @@ export default function CoursesPage() {
 
         return {
           ...course,
-          type: course.type || 'hourly', // ถ้าของเก่าไม่มีให้ถือเป็น hourly
+          type: course.type || 'hourly', 
           totalEnrolled: enrolledInThisCourse.length,
           activeEnrolled: enrolledInThisCourse.filter(e => e.remaining_hours > 0).length,
           students: enrolledInThisCourse.map(e => ({
@@ -99,13 +99,12 @@ export default function CoursesPage() {
     e.preventDefault()
     setSaving(true)
     const formData = new FormData(e.currentTarget)
-    // ฝังค่า type เข้าไปด้วยเผื่อลืม
     formData.set('type', courseType)
 
     const result: any = await addCourse(formData)
     if (result.success) {
       formRef.current?.reset()
-      setCourseType('hourly') // กลับไปค่าเริ่มต้น
+      setCourseType('hourly') 
       fetchCoursesData()
     } else {
       alert(`เกิดข้อผิดพลาด: ${result.error}`)
@@ -140,7 +139,6 @@ export default function CoursesPage() {
     setUpdating(false)
   }
 
-  // Helper ฟังก์ชันสำหรับเปิดหน้าต่างแก้ไขพร้อมตั้งค่าเริ่มต้น
   const openEditModal = (course: Course) => {
     setEditingCourse(course)
     setEditCourseType(course.type || 'hourly')
@@ -185,7 +183,6 @@ export default function CoursesPage() {
                     
                     <form ref={formRef} onSubmit={handleAddCourse} className="space-y-5">
                         
-                        {/* 1. ชื่อคอร์สเรียน */}
                         <div>
                             <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">ชื่อคอร์สเรียน *</label>
                             <input 
@@ -194,27 +191,33 @@ export default function CoursesPage() {
                             />
                         </div>
 
-                        {/* 2. เลือกประเภทคอร์ส */}
+                        {/* ✅ อัปเดต: เพิ่มปุ่มคอร์สส่วนตัวเป็น 3 คอลัมน์ */}
                         <div>
                             <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">รูปแบบการคิดเวลา *</label>
-                            <div className="grid grid-cols-2 gap-3">
-                              <label className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 cursor-pointer transition-all ${courseType === 'hourly' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                            <div className="grid grid-cols-3 gap-2">
+                              <label className={`flex flex-col items-center justify-center p-2 md:p-3 rounded-xl border-2 cursor-pointer transition-all ${courseType === 'hourly' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
                                 <input type="radio" name="type" value="hourly" className="hidden" checked={courseType === 'hourly'} onChange={() => setCourseType('hourly')} />
-                                <span className="text-xl mb-1">⏱️</span>
-                                <span className="text-xs font-bold">รายชั่วโมง</span>
+                                <span className="text-lg md:text-xl mb-1">⏱️</span>
+                                <span className="text-[10px] md:text-xs font-bold">รายชั่วโมง</span>
                               </label>
                               
-                              <label className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 cursor-pointer transition-all ${courseType === 'monthly' ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                              <label className={`flex flex-col items-center justify-center p-2 md:p-3 rounded-xl border-2 cursor-pointer transition-all ${courseType === 'monthly' ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
                                 <input type="radio" name="type" value="monthly" className="hidden" checked={courseType === 'monthly'} onChange={() => setCourseType('monthly')} />
-                                <span className="text-xl mb-1">📅</span>
-                                <span className="text-xs font-bold">รายเดือน</span>
+                                <span className="text-lg md:text-xl mb-1">📅</span>
+                                <span className="text-[10px] md:text-xs font-bold">รายเดือน</span>
+                              </label>
+
+                              <label className={`flex flex-col items-center justify-center p-2 md:p-3 rounded-xl border-2 cursor-pointer transition-all ${courseType === 'private' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                                <input type="radio" name="type" value="private" className="hidden" checked={courseType === 'private'} onChange={() => setCourseType('private')} />
+                                <span className="text-lg md:text-xl mb-1">👤</span>
+                                <span className="text-[10px] md:text-xs font-bold">ส่วนตัว</span>
                               </label>
                             </div>
                         </div>
 
-                        {/* 3. ช่องกรอกข้อมูลที่เปลี่ยนไปตามประเภทคอร์ส */}
+                        {/* ช่องกรอกข้อมูลที่เปลี่ยนไปตามประเภทคอร์ส */}
                         <div className="animate-fade-in">
-                          {courseType === 'hourly' ? (
+                          {courseType === 'hourly' && (
                             <div>
                                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">จำนวนชั่วโมง *</label>
                                 <div className="relative">
@@ -225,7 +228,9 @@ export default function CoursesPage() {
                                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">ชม.</span>
                                 </div>
                             </div>
-                          ) : (
+                          )}
+                          
+                          {courseType === 'monthly' && (
                             <div>
                                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">อายุคอร์สเรียน *</label>
                                 <div className="relative">
@@ -237,6 +242,17 @@ export default function CoursesPage() {
                                 </div>
                                 <p className="text-[10px] text-gray-400 mt-2 font-medium leading-relaxed bg-gray-50 p-2 rounded-lg border border-gray-100">
                                   * ระบบจะไม่ตัดชั่วโมงเวลาเช็คชื่อ แต่จะตรวจสอบจากวันหมดอายุแทน
+                                </p>
+                            </div>
+                          )}
+
+                          {/* ✅ อัปเดต: ถ้าเป็นคอร์ส Private จะโชว์คำอธิบายแทนช่องกรอก */}
+                          {courseType === 'private' && (
+                            <div className="bg-blue-50/80 p-4 rounded-xl border border-blue-100 text-center">
+                                <span className="text-2xl mb-2 block opacity-80">📝</span>
+                                <p className="text-xs text-blue-700 font-bold leading-relaxed">
+                                  คอร์สส่วนตัว จะไม่มีการระบุชั่วโมงตั้งต้น<br/>
+                                  คุณสามารถระบุชั่วโมงเรียนได้<br/>"ตอนที่กดรับสมัครนักเรียน"
                                 </p>
                             </div>
                           )}
@@ -262,7 +278,6 @@ export default function CoursesPage() {
                 courses.map((course) => (
                   <div key={course.id} className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden transition-all duration-200 hover:shadow-md hover:border-indigo-200">
                     
-                    {/* Header ของแต่ละคอร์ส */}
                     <div onClick={() => toggleExpand(course.id)} className="p-5 md:p-6 cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition group relative">
                       <div className="flex items-center gap-4 w-full sm:w-auto">
                         <div className="w-14 h-14 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-pink-100 flex-shrink-0">
@@ -274,10 +289,15 @@ export default function CoursesPage() {
                               <span className="text-[10px] text-gray-500 font-bold bg-gray-100 px-2 py-0.5 rounded">
                                   ผู้เรียน {course.totalEnrolled} คน
                               </span>
-                              {/* ✅ แสดง Tag ตามประเภทคอร์ส */}
+                              
+                              {/* ✅ อัปเดต: Tag สีตามประเภท */}
                               {course.type === 'monthly' ? (
                                   <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded">
                                       📅 {course.duration_months || 0} เดือน
+                                  </span>
+                              ) : course.type === 'private' ? (
+                                  <span className="text-[10px] text-blue-600 font-bold bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">
+                                      👤 คอร์สส่วนตัว
                                   </span>
                               ) : (
                                   <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
@@ -289,7 +309,6 @@ export default function CoursesPage() {
                       </div>
 
                       <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto border-t sm:border-t-0 pt-4 sm:pt-0 border-gray-100">
-                        {/* ปุ่มแก้ไข / ลบ */}
                         <div className="flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity mr-2">
                            <button onClick={(e) => { e.stopPropagation(); openEditModal(course); }} className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition border border-transparent hover:border-indigo-100 bg-gray-50 sm:bg-transparent" title="แก้ไข">✏️</button>
                            <button onClick={(e) => handleDelete(e, course.id, course.title)} className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition border border-transparent hover:border-red-100 bg-gray-50 sm:bg-transparent" title="ลบ">🗑️</button>
@@ -307,7 +326,6 @@ export default function CoursesPage() {
                       </div>
                     </div>
 
-                    {/* รายชื่อนักเรียน (กางออกเมื่อคลิก) */}
                     {expandedCourse === course.id && (
                       <div className="bg-gray-50/80 border-t border-gray-100 p-5 md:p-6 animate-fade-in-up">
                         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">👥 รายชื่อผู้เรียนในคอร์ส</h3>
@@ -337,7 +355,6 @@ export default function CoursesPage() {
                                      </div>
                                   </div>
 
-                                  {/* ✅ ถ้าเป็นคอร์สรายเดือน จะโชว์ไอคอนเดือนแทนชั่วโมง */}
                                   {course.type === 'monthly' ? (
                                     <div className="flex-shrink-0 px-2 py-1.5 rounded-lg border bg-emerald-50 border-emerald-100 text-emerald-600 text-center min-w-[50px] shadow-sm">
                                       <span className="block text-[9px] font-bold uppercase opacity-80 leading-none mb-1">คอร์ส</span>
@@ -379,7 +396,6 @@ export default function CoursesPage() {
             <form onSubmit={handleUpdateCourse} className="p-6 space-y-5">
               <input type="hidden" name="id" value={editingCourse.id} />
               
-              {/* 1. ชื่อคอร์สเรียน */}
               <div>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wide ml-1 mb-1.5 block">ชื่อคอร์สเรียน *</label>
                   <input 
@@ -388,26 +404,30 @@ export default function CoursesPage() {
                   />
               </div>
 
-              {/* 2. เลือกประเภทคอร์ส (ตอนแก้ไข) */}
+              {/* ✅ อัปเดต: กริดปุ่มแก้ไขเป็น 3 คอลัมน์ */}
               <div>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wide ml-1 mb-1.5 block">รูปแบบการคิดเวลา *</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${editCourseType === 'hourly' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                  <div className="grid grid-cols-3 gap-2">
+                    <label className={`flex flex-col items-center justify-center p-2 rounded-xl border-2 cursor-pointer transition-all ${editCourseType === 'hourly' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
                       <input type="radio" name="type" value="hourly" className="hidden" checked={editCourseType === 'hourly'} onChange={() => setEditCourseType('hourly')} />
-                      <span className="text-base">⏱️</span>
-                      <span className="text-xs font-bold">รายชั่วโมง</span>
+                      <span className="text-lg mb-1">⏱️</span>
+                      <span className="text-[10px] md:text-xs font-bold">รายชั่วโมง</span>
                     </label>
-                    <label className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${editCourseType === 'monthly' ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                    <label className={`flex flex-col items-center justify-center p-2 rounded-xl border-2 cursor-pointer transition-all ${editCourseType === 'monthly' ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
                       <input type="radio" name="type" value="monthly" className="hidden" checked={editCourseType === 'monthly'} onChange={() => setEditCourseType('monthly')} />
-                      <span className="text-base">📅</span>
-                      <span className="text-xs font-bold">รายเดือน</span>
+                      <span className="text-lg mb-1">📅</span>
+                      <span className="text-[10px] md:text-xs font-bold">รายเดือน</span>
+                    </label>
+                    <label className={`flex flex-col items-center justify-center p-2 rounded-xl border-2 cursor-pointer transition-all ${editCourseType === 'private' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm' : 'border-gray-100 bg-white text-gray-400 hover:bg-gray-50'}`}>
+                      <input type="radio" name="type" value="private" className="hidden" checked={editCourseType === 'private'} onChange={() => setEditCourseType('private')} />
+                      <span className="text-lg mb-1">👤</span>
+                      <span className="text-[10px] md:text-xs font-bold">ส่วนตัว</span>
                     </label>
                   </div>
               </div>
 
-              {/* 3. ช่องกรอกที่เปลี่ยนไปตามประเภท (ตอนแก้ไข) */}
               <div className="animate-fade-in">
-                {editCourseType === 'hourly' ? (
+                {editCourseType === 'hourly' && (
                   <div>
                       <label className="text-xs font-bold text-gray-500 uppercase tracking-wide ml-1 mb-1.5 block">จำนวนชั่วโมง *</label>
                       <div className="relative">
@@ -418,7 +438,8 @@ export default function CoursesPage() {
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">ชม.</span>
                       </div>
                   </div>
-                ) : (
+                )}
+                {editCourseType === 'monthly' && (
                   <div>
                       <label className="text-xs font-bold text-gray-500 uppercase tracking-wide ml-1 mb-1.5 block">อายุคอร์สเรียน *</label>
                       <div className="relative">
@@ -428,6 +449,13 @@ export default function CoursesPage() {
                         />
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">เดือน</span>
                       </div>
+                  </div>
+                )}
+                {editCourseType === 'private' && (
+                  <div className="bg-blue-50/80 p-3 rounded-xl border border-blue-100 text-center">
+                      <p className="text-xs text-blue-700 font-bold leading-relaxed">
+                        คอร์สส่วนตัว จะระบุชั่วโมงเรียน<br/>ตอนรับสมัครนักเรียนครับ
+                      </p>
                   </div>
                 )}
               </div>
