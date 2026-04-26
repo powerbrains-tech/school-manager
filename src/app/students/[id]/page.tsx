@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { updateStudentPhoto, updateStudentInfo, deleteStudent, topUpCourse, deleteStudentEnrollment } from './actions'
+// ✅ 1. เพิ่ม import uploadSchoolLogo เข้ามา
+import { updateStudentPhoto, updateStudentInfo, deleteStudent, topUpCourse, deleteStudentEnrollment, uploadSchoolLogo } from './actions'
 import { QRCodeSVG } from 'qrcode.react'
 import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
+import { toPng } from 'html-to-image'
 
 type Course = {
   id: number | string
@@ -16,7 +18,7 @@ type Enrollment = {
   id: number
   remaining_hours: number
   bill_number?: string | null
-  study_days?: string | null // ✅ เพิ่ม field สำหรับรองรับวันมาเรียน
+  study_days?: string | null
   courses: Course | null
 }
 
@@ -82,10 +84,16 @@ export default function StudentProfile() {
   const [toppingUp, setToppingUp] = useState(false)
   const [expandedEnrollId, setExpandedEnrollId] = useState<number | null>(null)
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // ✅ 2. เพิ่ม State เก็บข้อมูลโลโก้โรงเรียน
+  const [schoolLogoUrl, setSchoolLogoUrl] = useState<string | null>(null)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
 
-  const isBusy = uploading || saving || deleting || toppingUp
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const logoInputRef = useRef<HTMLInputElement>(null) // ✅ Ref สำหรับกดเลือกไฟล์โลโก้
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cardRef = useRef<HTMLDivElement>(null) 
+
+  const isBusy = uploading || saving || deleting || toppingUp || uploadingLogo
 
   useEffect(() => {
     return () => {
@@ -103,6 +111,18 @@ export default function StudentProfile() {
 
   const fetchData = useCallback(async (id: string) => {
     try {
+      // ✅ 3. ดึงโลโก้โรงเรียนจากฐานข้อมูล
+      const { data: logoData } = await supabase
+        .from('system_settings')
+        .select('school_logo_url')
+        .eq('id', 1)
+        .single()
+      
+      if (logoData && logoData.school_logo_url) {
+        setSchoolLogoUrl(logoData.school_logo_url)
+      }
+
+      // ดึงข้อมูลนักเรียน
       const { data: studentData, error: studentError } = await supabase
         .from('students')
         .select(`
@@ -192,6 +212,31 @@ export default function StudentProfile() {
       }
     } finally {
       setUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  // ✅ 4. ฟังก์ชันอัปโหลดโลโก้
+  async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || isBusy) return
+    setUploadingLogo(true)
+    showToast('info', 'กำลังอัปโหลดโลโก้ใหม่...')
+    
+    try {
+      const formData = new FormData()
+      formData.append('logo', file)
+      const result = await uploadSchoolLogo(formData) 
+      
+      if (result.success) {
+        showToast('success', 'เปลี่ยนโลโก้โรงเรียนเรียบร้อยแล้ว!')
+        if (result.logoUrl) setSchoolLogoUrl(result.logoUrl)
+        router.refresh()
+      } else {
+        showToast('error', `อัปโหลดไม่สำเร็จ: ${result.error}`)
+      }
+    } finally {
+      setUploadingLogo(false)
       e.target.value = ''
     }
   }
@@ -291,13 +336,94 @@ export default function StudentProfile() {
     showToast('info', 'คัดลอกข้อมูลแล้ว')
   }
 
+  const handleDownloadCard = useCallback(async () => {
+    if (cardRef.current === null || !student) return
+    showToast('info', 'กำลังสร้างรูปภาพ กรุณารอสักครู่...')
+    try {
+      const dataUrl = await toPng(cardRef.current, { cacheBust: true, pixelRatio: 3 })
+      const link = document.createElement('a')
+      link.download = `StudentCard_${student.student_id}.png`
+      link.href = dataUrl
+      link.click()
+      showToast('success', '📥 ดาวน์โหลดบัตรสำเร็จ!')
+    } catch (err) {
+      console.error(err)
+      showToast('error', 'เกิดข้อผิดพลาดในการสร้างรูปภาพ')
+    }
+  }, [student, showToast])
+
+  const handlePrintCard = useCallback(async () => {
+    if (cardRef.current === null || !student) return
+    showToast('info', 'กำลังเตรียมไฟล์พิมพ์...')
+    try {
+      const dataUrl = await toPng(cardRef.current, { cacheBust: true, pixelRatio: 3 })
+      const iframe = document.createElement('iframe')
+      iframe.style.display = 'none'
+      document.body.appendChild(iframe)
+
+      const iframeDoc = iframe.contentWindow?.document
+      if (!iframeDoc) return
+
+      iframeDoc.write(`
+        <html>
+          <head>
+            <title>Print ID Card - ${student.student_id}</title>
+            <style>
+              @page { margin: 0; }
+              body { 
+                margin: 0; 
+                padding: 10mm; 
+                text-align: center; 
+                font-family: sans-serif; 
+              }
+              .card-container {
+                display: inline-block;
+                width: 54mm; 
+                height: 86mm;
+                position: relative;
+              }
+              img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                border-radius: 3mm;
+                outline: 1px dashed #ccc; 
+                outline-offset: 3px;
+              }
+              .cut-guide {
+                margin-top: 8mm;
+                font-size: 12px;
+                color: #666;
+                font-weight: bold;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="card-container">
+              <img src="${dataUrl}" onload="window.print();" />
+            </div>
+            <div class="cut-guide">✂️ ตัดตามรอยเส้นประ (ขนาด 54 x 86 mm) ✂️</div>
+          </body>
+        </html>
+      `)
+      iframeDoc.close()
+
+      setTimeout(() => {
+        document.body.removeChild(iframe)
+      }, 3000)
+
+    } catch (err) {
+      console.error(err)
+      showToast('error', 'เกิดข้อผิดพลาดในการสร้างไฟล์พิมพ์')
+    }
+  }, [student, showToast])
+
   const attendedThisMonth = history.filter(h => {
       const logDate = new Date(h.created_at)
       const now = new Date()
       return logDate.getMonth() === now.getMonth() && logDate.getFullYear() === now.getFullYear()
   }).length
 
-  // ✅ ดึงวันเรียนทั้งหมดของนักเรียนคนนี้มาโชว์ที่เดียว (ป้องกันข้อมูลซ้ำ)
   const allStudyDays = Array.from(
     new Set(
       student?.enrollments
@@ -346,6 +472,9 @@ export default function StudentProfile() {
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4 font-sans print:bg-white print:py-0">
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" disabled={isBusy} />
+      
+      {/* ✅ 5. Input ลับสำหรับเลือกไฟล์โลโก้ */}
+      <input type="file" ref={logoInputRef} onChange={handleLogoChange} accept="image/png,image/jpeg,image/webp" className="hidden" disabled={uploadingLogo} />
 
       <div className="max-w-md mx-auto mb-6 flex justify-between items-center print:hidden">
         <button onClick={() => router.back()} className="flex items-center gap-2 text-gray-500 hover:text-indigo-600 transition bg-white border border-gray-200 px-4 py-2 rounded-full shadow-sm text-sm font-bold">
@@ -353,6 +482,18 @@ export default function StudentProfile() {
         </button>
 
         <div className="flex gap-2">
+          {/* ✅ 6. ปุ่มตั้งค่าโลโก้ */}
+          {!isEditing && (
+            <button 
+              onClick={() => logoInputRef.current?.click()} 
+              disabled={uploadingLogo} 
+              className="bg-white text-gray-600 border border-gray-200 px-4 py-2 rounded-full shadow-sm text-sm font-bold hover:bg-gray-50 transition flex items-center gap-2 disabled:opacity-50"
+            >
+              {uploadingLogo ? <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div> : '⚙️'} 
+              {uploadingLogo ? 'กำลังอัปโหลด...' : 'ตั้งค่าโลโก้'}
+            </button>
+          )}
+
           <button onClick={() => setIsEditing((prev) => !prev)} disabled={saving || deleting} className={`px-4 py-2 rounded-full shadow-sm text-sm font-bold transition flex items-center gap-2 disabled:opacity-50 ${isEditing ? 'bg-gray-800 text-white' : 'bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50'}`}>
             {isEditing ? '✖ ยกเลิก' : '✏️ แก้ไขข้อมูล'}
           </button>
@@ -390,11 +531,10 @@ export default function StudentProfile() {
 
         <div className="pt-16 pb-6 px-6 text-center">
           {isEditing ? (
+            /* ================= โหมดแก้ไข ================= */
             <form action={handleSaveInfo} className="space-y-4 animate-fade-in-up text-left">
               <fieldset disabled={saving || deleting} className="space-y-4 disabled:opacity-70">
                 <input type="hidden" name="studentId" value={student.student_id} />
-
-                {/* แก้ไขข้อมูลส่วนตัว */}
                 <div className="bg-gray-50 p-5 rounded-3xl border border-gray-100 space-y-4 shadow-inner">
                     <div className="grid grid-cols-3 gap-2">
                         <div className="col-span-1">
@@ -412,7 +552,6 @@ export default function StudentProfile() {
                             <input name="name" defaultValue={student.name} className="w-full px-4 border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none py-3 font-bold text-gray-800 bg-white rounded-2xl transition-all shadow-sm" placeholder="ระบุชื่อ-นามสกุล" />
                         </div>
                     </div>
-
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-xs text-gray-400 font-bold uppercase ml-2 mb-1 block">ชื่อเล่น</label>
@@ -423,10 +562,9 @@ export default function StudentProfile() {
                             <input name="phone" defaultValue={student.phone ?? ''} className="w-full px-4 border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none py-3 text-sm bg-white rounded-2xl transition-all shadow-sm" placeholder="เบอร์โทร" />
                         </div>
                     </div>
-
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-xs text-gray-400 font-bold uppercase ml-2 mb-1 block">วันเดือนปีเกิด</label>
+                            <label className="text-xs text-gray-400 font-bold uppercase ml-2 mb-1 block">วันเกิด</label>
                             <input type="date" name="dob" defaultValue={student.dob ?? ''} className="w-full px-4 border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none py-3 text-sm bg-white rounded-2xl transition-all shadow-sm" />
                         </div>
                         <div>
@@ -440,7 +578,6 @@ export default function StudentProfile() {
                             </select>
                         </div>
                     </div>
-
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-xs text-gray-400 font-bold uppercase ml-2 mb-1 block">ระดับชั้น</label>
@@ -459,11 +596,8 @@ export default function StudentProfile() {
                     </div>
                 </div>
 
-                {/* แก้ไขข้อมูลผู้ปกครอง */}
                 <div className="bg-blue-50 p-5 rounded-3xl border border-blue-100 space-y-4 shadow-sm">
-                    <h3 className="text-sm font-black text-blue-700 uppercase tracking-wider flex items-center gap-2 mb-2">
-                        👨‍👩‍👧 ข้อมูลผู้ปกครอง
-                    </h3>
+                    <h3 className="text-sm font-black text-blue-700 uppercase tracking-wider flex items-center gap-2 mb-2">👨‍👩‍👧 ข้อมูลผู้ปกครอง</h3>
                     <div>
                         <label className="text-xs text-blue-500 font-bold uppercase ml-2 mb-1 block">ชื่อ-สกุล ผู้ปกครอง</label>
                         <input name="parent_name" defaultValue={student.parent_name ?? ''} className="w-full px-4 border border-blue-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none py-3 text-sm bg-white rounded-2xl transition-all shadow-sm" placeholder="เช่น แม่น้องต้น" />
@@ -481,9 +615,7 @@ export default function StudentProfile() {
                 </div>
 
                 <div className="bg-pink-50 p-5 rounded-3xl border border-pink-100 space-y-4 shadow-sm">
-                    <h3 className="text-sm font-black text-pink-600 uppercase tracking-wider flex items-center gap-2 mb-2">
-                        💬 ข้อความถึงผู้ปกครอง
-                    </h3>
+                    <h3 className="text-sm font-black text-pink-600 uppercase tracking-wider flex items-center gap-2 mb-2">💬 ข้อความถึงผู้ปกครอง</h3>
                     <div>
                         <label className="text-xs text-pink-400 font-bold uppercase ml-2 mb-1 block">สถานะสั้นๆ</label>
                         <input name="student_status" defaultValue={student.student_status ?? ''} className="w-full px-4 border border-pink-200 focus:border-pink-500 focus:ring-2 focus:ring-pink-100 outline-none py-3 text-sm bg-white rounded-2xl transition-all text-pink-700 font-bold shadow-sm" placeholder="เช่น ตั้งใจเรียนมาก!" />
@@ -502,7 +634,7 @@ export default function StudentProfile() {
                       return (
                         <div key={enroll.id} className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-50">
                           <div className="mb-3">
-                            <label className="text-[10px] text-gray-400 font-bold uppercase ml-1">ชื่อวิชา (อ่านได้อย่างเดียว)</label>
+                            <label className="text-[10px] text-gray-400 font-bold uppercase ml-1">ชื่อวิชา</label>
                             <div className="w-full bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm font-bold text-gray-500 cursor-not-allowed">
                                {enroll.courses.title ?? 'ไม่ระบุ'}
                             </div>
@@ -514,16 +646,11 @@ export default function StudentProfile() {
                         </div>
                       )
                     })}
-                    {student.enrollments.length === 0 && (
-                        <p className="text-xs text-gray-500 text-center italic py-2">ยังไม่มีคอร์สเรียน</p>
-                    )}
                   </div>
                 </div>
 
                 <button type="submit" disabled={saving || deleting} className="w-full bg-gray-900 text-white font-black py-4 rounded-2xl shadow-xl hover:bg-indigo-700 transition transform active:scale-[0.98] disabled:opacity-60 text-base mt-4 flex items-center justify-center gap-2">
-                  {saving ? (
-                      <><div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div> กำลังบันทึก...</>
-                  ) : '💾 บันทึกการเปลี่ยนแปลง'}
+                  {saving ? <><div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div> กำลังบันทึก...</> : '💾 บันทึกการเปลี่ยนแปลง'}
                 </button>
 
                 <button type="button" onClick={openDeleteDialog} disabled={saving || deleting} className="w-full mt-4 bg-white border-2 border-red-100 text-red-500 py-3 rounded-2xl text-sm font-bold hover:bg-red-50 transition shadow-sm disabled:opacity-60">
@@ -532,8 +659,8 @@ export default function StudentProfile() {
               </fieldset>
             </form>
           ) : (
+            /* ================= โหมดดูข้อมูลปกติ ================= */
             <>
-              {/* โหมดดูข้อมูลปกติ */}
               <h1 className="text-2xl font-black text-gray-900 tracking-tight mt-2">
                 {student.prefix} {student.name}
               </h1>
@@ -552,7 +679,6 @@ export default function StudentProfile() {
                 )}
               </div>
 
-              {/* ข้อมูลส่วนตัว (วันเกิด/ศาสนา/เบอร์เด็ก) */}
               <div className="bg-gray-50 rounded-2xl p-4 mt-5 border border-gray-100 flex flex-wrap justify-around text-center gap-y-3">
                 <div className="px-3">
                   <span className="text-[10px] text-gray-400 font-bold block uppercase tracking-wide">อายุ</span>
@@ -568,7 +694,6 @@ export default function StudentProfile() {
                 </div>
               </div>
 
-              {/* ✅ ไฮไลท์ใหม่: แสดงวันที่มาเรียน (Study Days) */}
               {allStudyDays.length > 0 && (
                 <div className="mt-4 flex flex-col items-center">
                   <span className="text-[10px] text-green-600 font-bold uppercase tracking-widest mb-2 flex items-center gap-1">
@@ -579,9 +704,7 @@ export default function StudentProfile() {
                       const isWeekend = day === 'เสาร์' || day === 'อาทิตย์'
                       return (
                         <span key={day} className={`px-2.5 py-1 text-[10px] font-black rounded-lg border ${
-                          isWeekend 
-                            ? 'bg-orange-50 text-orange-600 border-orange-100' 
-                            : 'bg-green-50 text-green-600 border-green-100'
+                          isWeekend ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-green-50 text-green-600 border-green-100'
                         }`}>
                           {day}
                         </span>
@@ -591,12 +714,10 @@ export default function StudentProfile() {
                 </div>
               )}
 
-              {/* ข้อมูลผู้ปกครอง */}
               {(student.parent_name || student.parent_phone || student.parent_line_id) && (
                 <div className="bg-blue-50/50 rounded-2xl p-5 mt-5 border border-blue-100 text-left relative overflow-hidden">
                    <div className="absolute right-2 -bottom-2 text-6xl opacity-5">👪</div>
                    <h4 className="text-xs font-black text-blue-800 uppercase tracking-wider mb-3 flex items-center gap-2">👨‍👩‍👧 ข้อมูลผู้ปกครอง</h4>
-                   
                    <div className="space-y-2">
                       {student.parent_name && (
                         <div className="flex justify-between items-center bg-white px-3 py-2 rounded-xl border border-blue-50 shadow-sm">
@@ -604,7 +725,6 @@ export default function StudentProfile() {
                           <span className="text-sm font-bold text-gray-800">{student.parent_name}</span>
                         </div>
                       )}
-                      
                       <div className="grid grid-cols-2 gap-2">
                         {student.parent_phone && (
                           <button onClick={() => copyToClipboard(student.parent_phone!)} className="flex flex-col items-start bg-white px-3 py-2 rounded-xl border border-blue-50 shadow-sm hover:border-blue-300 transition text-left group">
@@ -629,7 +749,6 @@ export default function StudentProfile() {
                     <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">มาเรียนเดือนนี้</span>
                     <span className="text-xl font-black text-indigo-600 mt-1">{attendedThisMonth} <span className="text-xs font-bold text-indigo-400">ครั้ง</span></span>
                  </div>
-                 
                  {student.student_status && (
                  <div className="bg-gradient-to-b from-orange-50 to-white border border-orange-100 rounded-2xl p-4 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition">
                     <span className="text-2xl mb-1 drop-shadow-sm">⭐</span>
@@ -638,26 +757,18 @@ export default function StudentProfile() {
                  </div>
                  )}
               </div>
-
+              
               {student.teacher_message && (
-              <div className="mt-6 bg-gradient-to-br from-pink-50 to-white border border-pink-100 rounded-2xl p-5 text-left relative overflow-hidden print:hidden shadow-sm">
-                 <div className="absolute -right-2 -top-2 text-6xl opacity-10 drop-shadow-md">💬</div>
-                 <h4 className="text-xs font-black text-pink-600 uppercase tracking-wider mb-2 flex items-center gap-2">
-                    💌 ข้อความจากคุณครู
-                 </h4>
-                 <p className="text-sm text-gray-700 font-medium italic whitespace-pre-line leading-relaxed">
-                    "{student.teacher_message}"
-                 </p>
-              </div>
+                <div className="mt-6 bg-gradient-to-br from-pink-50 to-white border border-pink-100 rounded-2xl p-5 text-left relative overflow-hidden print:hidden shadow-sm">
+                   <div className="absolute -right-2 -top-2 text-6xl opacity-10 drop-shadow-md">💬</div>
+                   <h4 className="text-xs font-black text-pink-600 uppercase tracking-wider mb-2 flex items-center gap-2">💌 ข้อความจากคุณครู</h4>
+                   <p className="text-sm text-gray-700 font-medium italic whitespace-pre-line leading-relaxed">"{student.teacher_message}"</p>
+                </div>
               )}
 
+              {/* คอร์สเรียนปัจจุบัน */}
               <div className="mt-8 text-left">
-                <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-black text-gray-800 uppercase tracking-wider flex items-center gap-2">
-                    📚 คอร์สเรียนปัจจุบัน
-                    </h3>
-                </div>
-                
+                <h3 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-2">📚 คอร์สเรียนปัจจุบัน</h3>
                 <div className="space-y-3">
                   {student.enrollments && student.enrollments.length > 0 ? (
                     student.enrollments.map((enroll, index) => {
@@ -665,17 +776,12 @@ export default function StudentProfile() {
                       const percent = Math.min(100, Math.max(0, (enroll.remaining_hours / maxHours) * 100));
                       const isLow = enroll.remaining_hours <= 3;
                       const isMedium = enroll.remaining_hours > 3 && enroll.remaining_hours <= 10;
-                      
                       const courseHistory = history.filter(h => h.enrollment_id === enroll.id);
                       const isExpanded = expandedEnrollId === enroll.id;
                       
                       return (
                       <div key={index} className={`bg-white rounded-2xl border-2 ${isLow ? 'border-red-100 shadow-red-50' : 'border-gray-100'} shadow-sm text-left relative overflow-hidden group hover:border-indigo-100 transition-all duration-300`}>
-                        
-                        <div 
-                          className="p-5 cursor-pointer"
-                          onClick={() => setExpandedEnrollId(prev => prev === enroll.id ? null : enroll.id)}
-                        >
+                        <div className="p-5 cursor-pointer" onClick={() => setExpandedEnrollId(prev => prev === enroll.id ? null : enroll.id)}>
                           <div className="flex justify-between items-end mb-3">
                              <div className="pr-4">
                                 <p className="text-indigo-900 font-black text-sm transition-colors flex items-center gap-2">
@@ -687,38 +793,22 @@ export default function StudentProfile() {
                              <div className="text-right flex-shrink-0">
                                 <span className={`text-3xl font-black leading-none tracking-tight ${isLow ? 'text-red-600' : 'text-indigo-600'}`}>{enroll.remaining_hours}</span>
                                 <span className="text-xs text-gray-400 font-bold ml-1">ชม.</span>
-                                
                                 {enroll.bill_number && (
                                   <div className="text-[10px] text-gray-400 mt-1.5 font-mono bg-gray-50 px-1.5 py-0.5 rounded">บิล: {enroll.bill_number}</div>
                                 )}
                              </div>
                           </div>
-
                           <div className="w-full bg-gray-100 rounded-full h-2 mt-2 overflow-hidden">
-                             <div 
-                                className={`h-full rounded-full transition-all duration-1000 ${isLow ? 'bg-red-500' : isMedium ? 'bg-yellow-400' : 'bg-green-500'}`}
-                                style={{ width: `${percent}%` }}
-                             ></div>
+                             <div className={`h-full rounded-full transition-all duration-1000 ${isLow ? 'bg-red-500' : isMedium ? 'bg-yellow-400' : 'bg-green-500'}`} style={{ width: `${percent}%` }}></div>
                           </div>
                         </div>
 
                         {isExpanded && (
                           <div className="bg-gray-50 border-t border-gray-100 p-4 animate-fade-in-up">
                             <div className="flex justify-between items-center mb-3">
-                              <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                                🕒 ประวัติเข้าเรียน ({courseHistory.length})
-                              </h4>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteEnrollment(enroll.id, enroll.courses?.title || '');
-                                }}
-                                className="text-[10px] font-bold text-red-500 bg-red-50 border border-red-100 px-2 py-1 rounded hover:bg-red-100 hover:text-red-600 transition active:scale-95"
-                              >
-                                🗑️ ลบคอร์สนี้
-                              </button>
+                              <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">🕒 ประวัติเข้าเรียน ({courseHistory.length})</h4>
+                              <button onClick={(e) => { e.stopPropagation(); handleDeleteEnrollment(enroll.id, enroll.courses?.title || ''); }} className="text-[10px] font-bold text-red-500 bg-red-50 border border-red-100 px-2 py-1 rounded hover:bg-red-100 hover:text-red-600 transition active:scale-95">🗑️ ลบคอร์สนี้</button>
                             </div>
-                            
                             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                               {courseHistory.length > 0 ? (
                                 courseHistory.map((log, idx) => (
@@ -729,78 +819,112 @@ export default function StudentProfile() {
                                         {new Date(log.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} • {new Date(log.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
                                       </div>
                                     </div>
-                                    <div className="text-[10px] font-black text-orange-500 bg-orange-50 px-2 py-1 rounded-lg border border-orange-100">
-                                      -1.5 ชม.
-                                    </div>
+                                    <div className="text-[10px] font-black text-orange-500 bg-orange-50 px-2 py-1 rounded-lg border border-orange-100">-1.5 ชม.</div>
                                   </div>
                                 ))
                               ) : (
-                                <div className="text-center py-4 text-xs text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-xl">
-                                  ยังไม่มีประวัติในคอร์สนี้
-                                </div>
+                                <div className="text-center py-4 text-xs text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-xl">ยังไม่มีประวัติในคอร์สนี้</div>
                               )}
                             </div>
                           </div>
                         )}
-                        
                       </div>
                     )})
                   ) : (
                     <div className="p-6 bg-gray-50 rounded-2xl text-gray-400 font-medium text-sm border-2 border-dashed border-gray-200 text-center flex flex-col items-center justify-center">
-                      <span className="text-3xl mb-2 opacity-30">📂</span>
-                      ยังไม่ได้ลงทะเบียนเรียนคอร์สใดๆ
+                      <span className="text-3xl mb-2 opacity-30">📂</span>ยังไม่ได้ลงทะเบียนเรียนคอร์สใดๆ
                     </div>
                   )}
                 </div>
 
                 <div className="mt-5 bg-gradient-to-br from-indigo-50 to-purple-50 p-5 rounded-2xl border border-indigo-100 shadow-inner print:hidden text-left">
-                  <h4 className="text-sm font-black text-indigo-900 mb-3 flex items-center gap-2">
-                    ➕ สมัครคอร์สเพิ่ม / เติมชั่วโมง
-                  </h4>
+                  <h4 className="text-sm font-black text-indigo-900 mb-3 flex items-center gap-2">➕ สมัครคอร์สเพิ่ม / เติมชั่วโมง</h4>
                   <form onSubmit={handleTopUp} className="space-y-3">
                     <select name="course_id" required className="w-full text-sm px-4 py-3 rounded-xl border border-white focus:border-indigo-300 focus:ring-2 focus:ring-indigo-200 outline-none font-bold text-indigo-900 bg-white shadow-sm transition">
                       <option value="">-- เลือกคอร์สเรียน --</option>
-                      {availableCourses.map(c => (
-                        <option key={c.id} value={c.id}>{c.title}</option>
-                      ))}
+                      {availableCourses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                     </select>
-                    
                     <div className="grid grid-cols-2 gap-2">
                       <input type="number" name="hours" required min="1" placeholder="ชั่วโมง (เช่น 10)" className="w-full text-sm px-4 py-3 rounded-xl border border-white focus:border-indigo-300 focus:ring-2 focus:ring-indigo-200 outline-none font-black text-indigo-900 bg-white shadow-sm text-center transition" />
                       <input type="text" name="bill_number" placeholder="เลขที่บิล (ถ้ามี)" className="w-full text-sm px-4 py-3 rounded-xl border border-white focus:border-indigo-300 focus:ring-2 focus:ring-indigo-200 outline-none font-bold text-gray-700 bg-white shadow-sm text-center transition uppercase" />
                     </div>
-
                     <button type="submit" disabled={toppingUp} className="w-full bg-indigo-600 text-white font-black py-3.5 rounded-xl hover:bg-indigo-700 transition flex justify-center items-center gap-2 text-sm shadow-md active:scale-95 disabled:opacity-50 mt-1">
                       {toppingUp ? 'กำลังดำเนินการ...' : '✅ ยืนยันการทำรายการ'}
                     </button>
                   </form>
                 </div>
               </div>
-
             </>
           )}
         </div>
 
+        {/* ✅ ไฮไลท์: บัตรดิจิทัลแนวตั้งที่ดูพรีเมียม */}
         {!isEditing && (
-          <div className="p-8 bg-gray-900 text-white flex flex-col items-center relative overflow-hidden print:bg-white print:text-black print:p-0 print:mt-8">
-            <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none print:hidden">
-               <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle,rgba(255,255,255,0.8)_10%,transparent_10%),radial-gradient(circle,rgba(255,255,255,0.8)_10%,transparent_10%)] bg-[length:20px_20px] bg-[position:0_0,10px_10px]"></div>
-            </div>
-
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-5 z-10 print:text-gray-500">Student Digital Pass</p>
+          <div className="p-8 bg-gray-50 flex flex-col items-center relative print:bg-white print:p-0 print:mt-8 border-t border-gray-100 mt-8 rounded-b-[2rem]">
             
-            <div className="p-4 bg-white rounded-3xl shadow-2xl z-10 print:shadow-none print:border print:border-gray-300 transform transition-transform hover:scale-105">
-              <QRCodeSVG value={student.student_id} size={160} level="H" />
-            </div>
-            
-            <p className="text-sm font-mono font-bold mt-5 tracking-widest text-indigo-300 z-10 print:text-gray-800 bg-black/30 px-4 py-1 rounded-full backdrop-blur-sm border border-white/10">{student.student_id}</p>
-            
-            <button 
-               onClick={() => window.print()}
-               className="mt-6 bg-white/10 hover:bg-white/20 border border-white/20 text-white px-6 py-2.5 rounded-full text-xs font-bold transition-all backdrop-blur-md z-10 flex items-center gap-2 print:hidden active:scale-95 hover:shadow-lg"
+            <div 
+              ref={cardRef} 
+              className="relative w-[340px] bg-gradient-to-br from-indigo-900 via-purple-900 to-gray-900 text-white rounded-[2rem] p-7 flex flex-col items-center shadow-2xl overflow-hidden mb-8 z-10 border border-white/10"
             >
-                💾 บันทึกภาพ / พิมพ์บัตร
-            </button>
+              <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none">
+                 <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle,rgba(255,255,255,0.8)_10%,transparent_10%),radial-gradient(circle,rgba(255,255,255,0.8)_10%,transparent_10%)] bg-[length:20px_20px] bg-[position:0_0,10px_10px]"></div>
+              </div>
+
+              <div className="z-10 w-full flex justify-between items-start mb-6 border-b border-white/20 pb-4">
+                <div className="text-left pr-3">
+                  <h3 className="font-black text-sm tracking-widest text-indigo-300">STUDENT PASS</h3>
+                  <p className="text-[10px] font-bold opacity-80 mt-1">{student.school_name || 'โรงเรียนกวดวิชา'}</p>
+                </div>
+                {/* ✅ 7. แสดงโลโก้โรงเรียน (ถ้ามี) */}
+                <div className="w-11 h-11 flex-shrink-0 bg-white/10 rounded-xl backdrop-blur-sm border border-white/20 shadow-sm overflow-hidden flex items-center justify-center p-1">
+                  {schoolLogoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={schoolLogoUrl} alt="School Logo" crossOrigin="anonymous" className="max-w-full max-h-full object-contain" />
+                  ) : (
+                    <div className="text-3xl">🎓</div>
+                  )}
+                </div>
+              </div>
+
+              {student.image_url ? (
+                <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-xl z-10 mb-4 bg-white relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={student.image_url} alt="Profile" crossOrigin="anonymous" className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="w-24 h-24 rounded-full border-4 border-white shadow-xl z-10 mb-4 bg-indigo-500 flex items-center justify-center text-3xl font-black text-white">
+                  {student.nickname ? student.nickname.charAt(0) : student.name.charAt(0)}
+                </div>
+              )}
+
+              <div className="z-10 text-center w-full mb-6">
+                <p className="text-xl font-black tracking-tight leading-tight">{student.prefix}{student.name}</p>
+                <p className="text-sm font-bold text-indigo-300 mt-1">{student.nickname ? `(น้อง${student.nickname})` : ''}</p>
+              </div>
+
+              <div className="p-3 bg-white rounded-3xl shadow-inner z-10 mb-6">
+                <QRCodeSVG value={student.student_id} size={120} level="H" />
+              </div>
+              
+              <p className="text-sm font-mono font-bold tracking-widest text-white z-10 bg-black/40 px-5 py-1.5 rounded-full backdrop-blur-sm border border-white/10 mb-2">
+                {student.student_id}
+              </p>
+
+              {student.parent_phone && (
+                <div className="z-10 mt-4 text-[10px] font-mono opacity-60 tracking-wider w-full text-center border-t border-white/10 pt-4">
+                  EMERGENCY CONTACT: {student.parent_phone}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-3 z-10 w-full max-w-[340px] print:hidden">
+              <button onClick={handleDownloadCard} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-full text-sm font-bold transition-all shadow-md active:scale-95 flex items-center justify-center gap-2">
+                  📥 เซฟรูปลงเครื่อง
+              </button>
+              <button onClick={handlePrintCard} className="flex-1 bg-white hover:bg-gray-100 border border-gray-200 text-gray-700 px-6 py-3 rounded-full text-sm font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2">
+                  🖨️ พิมพ์กระดาษ
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -816,15 +940,9 @@ export default function StudentProfile() {
           <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl text-center">
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">⚠️</div>
             <h3 className="text-xl font-black text-gray-900">ยืนยันการลบข้อมูล?</h3>
-            <p className="text-sm text-gray-600 mt-2 font-medium">
-              คุณกำลังจะลบนักเรียน <br/><span className="font-bold text-red-600 text-base">"{student.name}"</span>
-            </p>
-            <p className="text-xs text-red-400 mt-3 bg-red-50 p-2.5 rounded-xl border border-red-100">ข้อมูลคอร์สเรียนและประวัติจะหายไปทั้งหมดและกู้คืนไม่ได้</p>
-
+            <p className="text-sm text-gray-600 mt-2 font-medium">คุณกำลังจะลบนักเรียน <br/><span className="font-bold text-red-600 text-base">"{student.name}"</span></p>
             <div className="mt-6 grid grid-cols-2 gap-3">
-              <button type="button" onClick={closeDeleteDialog} disabled={deleting} className="px-4 py-3 rounded-xl border-2 border-gray-200 text-gray-600 font-bold hover:bg-gray-50 disabled:opacity-60 transition active:scale-95">
-                ยกเลิก
-              </button>
+              <button type="button" onClick={closeDeleteDialog} disabled={deleting} className="px-4 py-3 rounded-xl border-2 border-gray-200 text-gray-600 font-bold hover:bg-gray-50 disabled:opacity-60 transition active:scale-95">ยกเลิก</button>
               <button type="button" onClick={confirmDelete} disabled={deleting} className="px-4 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 disabled:opacity-60 transition shadow-lg shadow-red-200 active:scale-95 flex justify-center items-center gap-2">
                 {deleting ? <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div> : null}
                 {deleting ? 'กำลังลบ...' : 'ลบถาวร'}

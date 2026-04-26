@@ -277,3 +277,28 @@ export async function deleteStudentEnrollment(enrollmentId: number) {
     return { success: false, error: error.message }
   }
 }
+export async function uploadSchoolLogo(formData: FormData) {
+  const file = formData.get('logo') as File
+  if (!file || file.size === 0) return { success: false, error: 'ไม่พบไฟล์รูปภาพ' }
+
+  try {
+    const fileName = `school-logo-${Date.now()}.${file.name.split('.').pop()}`
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('settings')
+      .upload(fileName, file, { cacheControl: '3600', upsert: true })
+
+    if (uploadError) throw uploadError
+
+    const { data: publicUrlData } = supabase.storage.from('settings').getPublicUrl(fileName)
+    const logoUrl = publicUrlData.publicUrl
+
+    const { error: dbError } = await supabase
+      .from('system_settings')
+      .upsert({ id: 1, school_logo_url: logoUrl })
+
+    if (dbError) throw dbError
+    return { success: true, logoUrl: logoUrl }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
