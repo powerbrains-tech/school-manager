@@ -17,7 +17,9 @@ export async function registerStudent(formData: FormData) {
   const start_date = (formData.get('start_date') as string) || new Date().toISOString().split('T')[0]
 
   const prefix = formData.get('prefix') as string || null
-  const name = (formData.get('name') as string) || ''
+  const rawName = (formData.get('name') as string) || ''
+  const name = rawName.trim() // ✅ ตัดช่องว่างหน้าหลังป้องกันการพิมพ์ผิด
+  
   const nickname = formData.get('nickname') as string || null
   const phone = formData.get('phone') as string || null
   const dob = formData.get('dob') as string || null
@@ -30,11 +32,26 @@ export async function registerStudent(formData: FormData) {
   const parent_line_id = formData.get('parent_line_id') as string || null
 
   const enrolled_subjects = formData.get('enrolled_subjects') as string || null
-  
-  // ✅ รับค่าวันเรียนปกติจากหน้าฟอร์ม
   const study_days = formData.get('study_days') as string || null
 
-  // 1. ระบบ Auto-Generate รหัสนักเรียน
+  // ⚠️ 1. ระบบเช็คชื่อซ้ำ (ดักจับก่อนทำอย่างอื่นเลย)
+  if (name) {
+    const { data: duplicateStudent } = await supabase
+      .from('students')
+      .select('student_id')
+      .eq('name', name)
+      .maybeSingle()
+
+    // ถ้าเจอชื่อตรงกันเป๊ะ ให้เด้ง Error แจ้งเตือนแอดมินทันที
+    if (duplicateStudent) {
+      return { 
+        success: false, 
+        error: `มีชื่อ "${name}" อยู่ในระบบแล้ว (รหัส ${duplicateStudent.student_id}) หากเป็นนักเรียนเก่า กรุณาไปที่หน้าประวัตินักเรียนเพื่อ 'สมัครคอร์สเพิ่ม' แทนครับ` 
+      }
+    }
+  }
+
+  // 2. ระบบ Auto-Generate รหัสนักเรียน (ทำหลังจากเช็คชื่อซ้ำผ่านแล้ว)
   const { data: latest } = await supabase
     .from('students')
     .select('student_id')
@@ -128,7 +145,7 @@ export async function registerStudent(formData: FormData) {
     studentDbId = newStudent.id
   }
 
-  // 5. ดึงข้อมูลคอร์สเพื่อมาคำนวณวันหมดอายุ (ถ้าเป็นคอร์สรายเดือน)
+  // 5. ดึงข้อมูลคอร์สเพื่อมาคำนวณวันหมดอายุ
   const { data: courseData } = await supabase
     .from('courses')
     .select('type, duration_months')
@@ -145,7 +162,7 @@ export async function registerStudent(formData: FormData) {
     expiry_date = startDateObj.toISOString().split('T')[0] 
   }
 
-  // 6. บันทึกข้อมูลการลงทะเบียน (เพิ่ม study_days)
+  // 6. บันทึกข้อมูลการลงทะเบียน 
   const { error: enrollmentError } = await supabase.from('enrollments').insert([
     {
       student_id: studentDbId,
@@ -154,7 +171,7 @@ export async function registerStudent(formData: FormData) {
       enrolled_subjects: enrolled_subjects,
       start_date: start_date,     
       expiry_date: expiry_date,    
-      study_days: study_days // ✅ บันทึกวันที่มาเรียนปกติ
+      study_days: study_days 
     },
   ])
 
@@ -167,10 +184,7 @@ export async function registerStudent(formData: FormData) {
   return { success: true, studentId: studentId }
 }
 
-// ==============================================
-// ⚠️ หมายเหตุ: ฟังก์ชัน recordAttendance นี้เป็นของเดิม
-// ในอนาคตเราจะต้องมาอัปเกรดให้รองรับการสแกนคอร์สรายเดือนด้วยครับ
-// ==============================================
+// ฟังก์ชัน recordAttendance
 export async function recordAttendance(studentId: string) {
   const access = await requirePermission('edit')
   if (!access.ok) return { success: false, message: access.error }
